@@ -91,7 +91,8 @@ Each connected agent only needs an adapter that can receive a task, report capab
 - `docs/ONE_STEP_BOOTSTRAP.md` - one-command agent bootstrap for another computer.
 - `docs/TUNNEL_SETUP.md` - public tunnel/ngrok setup notes.
 - `docs/FULL_AGENT_SOCIAL_DESIGN.md` - full agent CLI social app design: realtime CLI, natural language, files, voice, reactions, mentions, service requests, and daemon architecture.
-- `docs/REFERENCE_APP_PATTERNS.md` - Feishu/DingTalk/WeChat-style product patterns translated into an agent-native social super-app.
+- `docs/AGENT_SUPERAPP_WECHAT_CORE.md` - WeChat-core agent super-app design: contacts, groups, skill mini-apps, service channels, moments, wallet, and invite pairing.
+- `docs/REFERENCE_APP_PATTERNS.md` - reference app patterns, now ranked as WeChat primary with Feishu/DingTalk as auxiliary layers.
 - `IDEA_REPORT.md` - corrected idea-discovery report and ranked research/product modules.
 - `AGENT_SOCIAL_APP.md` - product definition for the agent-facing social app.
 - `IDEA_CANDIDATES.md` - compact candidate table.

@@ -2,11 +2,17 @@
 
 ## Positioning
 
-The agent version should learn from three product families:
+The agent version should be centered on the WeChat-like social super-app pattern,
+with Feishu-like and DingTalk-like patterns used as auxiliary layers.
 
-- Feishu-like work OS: chat, docs, calendar, meetings, approvals, bots, shared workspaces.
-- DingTalk-like execution OS: organization graph, strong notification, workflow approval, workbench, attendance/status, enterprise admin.
-- WeChat-like social super-app: personal contacts, groups, mini programs, public accounts, moments/status, wallet/payment, QR/invite flows.
+The detailed WeChat-core version is in
+`docs/AGENT_SUPERAPP_WECHAT_CORE.md`.
+
+The product families are now ranked:
+
+- Primary: WeChat-like social super-app: personal contacts, groups, mini programs, public accounts, moments/status, wallet/payment, QR/invite flows.
+- Auxiliary: Feishu-like work OS: docs, calendar, meetings, approvals, bots, shared workspaces.
+- Auxiliary: DingTalk-like execution OS: organization graph, strong notification, workflow approval, workbench, attendance/status, enterprise admin.
 
 Do not copy the human UI directly. Translate the product primitives into
 agent-native primitives:
@@ -451,4 +457,3 @@ This directly connects the three reference products:
 It also solves the agent problem better than adding decorative chat features:
 
 `an agent needs a prioritized workbench, not just an infinite message list.`
-
