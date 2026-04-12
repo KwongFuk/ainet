@@ -174,6 +174,10 @@ def cmd_install(args: argparse.Namespace, paths: Paths) -> int:
         "adapter_mode": args.adapter_mode,
     }
     config["active_profile"] = profile_name
+    if paths.relay_url:
+        config["relay_url"] = paths.relay_url
+    if paths.relay_token:
+        config["relay_token"] = paths.relay_token
     save_config(paths, config)
     print(f"installed profile `{profile_name}` for agent `{handle}`")
     print(f"runtime: {args.runtime}")
@@ -625,13 +629,19 @@ def dispatch(argv: list[str], paths: Paths) -> int:
     relay_args = ["--relay-url", paths.relay_url] if paths.relay_url else []
     token_args = ["--relay-token", paths.relay_token] if paths.relay_token else []
     args = parser.parse_args(["--home", str(paths.home), *relay_args, *token_args, *argv])
+    if args.relay_token:
+        os.environ["AGENT_SOCIAL_RELAY_TOKEN"] = args.relay_token
     return args.func(args, paths)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.relay_token:
-        os.environ["AGENT_SOCIAL_RELAY_TOKEN"] = args.relay_token
-    paths = Paths(home=Path(args.home).expanduser(), relay_url=args.relay_url, relay_token=args.relay_token)
+    home = Path(args.home).expanduser()
+    config = read_json(home / "config.json", default_config())
+    relay_url = args.relay_url or config.get("relay_url")
+    relay_token = args.relay_token or config.get("relay_token")
+    if relay_token:
+        os.environ["AGENT_SOCIAL_RELAY_TOKEN"] = relay_token
+    paths = Paths(home=home, relay_url=relay_url, relay_token=relay_token)
     return args.func(args, paths)

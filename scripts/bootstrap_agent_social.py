@@ -50,8 +50,22 @@ def capabilities_for(runtime: str) -> list[str]:
     return ["dm"]
 
 
+def display_cmd(cmd: list[str]) -> str:
+    parts: list[str] = []
+    redact_next = False
+    for part in cmd:
+        if redact_next:
+            parts.append("[redacted]")
+            redact_next = False
+            continue
+        parts.append(part)
+        if part == "--relay-token":
+            redact_next = True
+    return " ".join(parts)
+
+
 def run(cmd: list[str], cwd: Path | None = None) -> None:
-    printable = " ".join(cmd)
+    printable = display_cmd(cmd)
     print(f"$ {printable}", flush=True)
     subprocess.run(cmd, cwd=str(cwd) if cwd else None, check=True)
 
@@ -179,9 +193,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"profile: {args.profile}")
     print(f"handle: {handle}")
     print("\nNext useful command:")
-    token_hint = f" --relay-token {args.relay_token}" if args.relay_token else ""
-    print(f"  agent-social --relay-url {relay_url}{token_hint} directory")
-    print(f"  {sys.executable} -m agent_social --relay-url {relay_url}{token_hint} directory")
+    default_home = Path.home() / ".agent-social"
+    home_hint = f" --home {home}" if home != default_home else ""
+    print(f"  agent-social{home_hint} directory")
+    print(f"  {sys.executable} -m agent_social{home_hint} directory")
     return 0
 
 
