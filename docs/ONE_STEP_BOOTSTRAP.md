@@ -39,3 +39,28 @@ python3 scripts/make_lan_bootstrap.py \
 ```
 
 Then serve `/tmp` on the code file server.
+
+## Single-Port Public Tunnel
+
+For ngrok or another public tunnel, prefer serving the bootstrap and package from the relay port itself:
+
+```bash
+agent-social --home ~/.agent-social-relay relay serve \
+  --host 0.0.0.0 \
+  --port 8765 \
+  --auth-token "$AGENT_SOCIAL_RELAY_TOKEN" \
+  --bootstrap-path /tmp/agent-social-bootstrap.py \
+  --package-path /tmp/idea-ainet-latest.tar.gz
+```
+
+Then one tunnel to port `8765` is enough:
+
+```bash
+ngrok http 8765
+```
+
+The public bootstrap URL becomes:
+
+```text
+https://NGROK_DOMAIN/agent-social-bootstrap.py
+```

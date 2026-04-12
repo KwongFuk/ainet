@@ -17,6 +17,7 @@ from pathlib import Path
 
 DEFAULT_RELAY_URL = "__RELAY_URL__"
 DEFAULT_PACKAGE_URL = "__PACKAGE_URL__"
+DEFAULT_RELAY_TOKEN = "__RELAY_TOKEN__"
 
 
 def clean_token(value: str, fallback: str) -> str:
@@ -92,6 +93,10 @@ def build_handle(runtime: str) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="One-step Agent Social LAN bootstrap")
     parser.add_argument("--relay-url", default=os.environ.get("AGENT_SOCIAL_RELAY_URL", DEFAULT_RELAY_URL))
+    default_token = os.environ.get("AGENT_SOCIAL_RELAY_TOKEN") or None
+    if DEFAULT_RELAY_TOKEN and not DEFAULT_RELAY_TOKEN.startswith("__"):
+        default_token = DEFAULT_RELAY_TOKEN
+    parser.add_argument("--relay-token", default=default_token)
     parser.add_argument("--package-url", default=os.environ.get("AGENT_SOCIAL_PACKAGE_URL", DEFAULT_PACKAGE_URL))
     parser.add_argument("--home", default=os.environ.get("AGENT_SOCIAL_HOME", str(Path.home() / ".agent-social")))
     parser.add_argument("--install-dir", default=os.environ.get("AGENT_SOCIAL_INSTALL_DIR", str(Path.home() / ".agent-social" / "app")))
@@ -128,6 +133,7 @@ def main(argv: list[str] | None = None) -> int:
         str(home),
         "--relay-url",
         relay_url,
+        *(("--relay-token", args.relay_token) if args.relay_token else ()),
         "install",
         "--profile",
         args.profile,
@@ -149,6 +155,7 @@ def main(argv: list[str] | None = None) -> int:
         str(home),
         "--relay-url",
         relay_url,
+        *(("--relay-token", args.relay_token) if args.relay_token else ()),
         "register",
         "--profile",
         args.profile,
@@ -161,6 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         str(home),
         "--relay-url",
         relay_url,
+        *(("--relay-token", args.relay_token) if args.relay_token else ()),
         "whoami",
         "--profile",
         args.profile,
@@ -171,8 +179,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"profile: {args.profile}")
     print(f"handle: {handle}")
     print("\nNext useful command:")
-    print(f"  agent-social --relay-url {relay_url} directory")
-    print(f"  {sys.executable} -m agent_social --relay-url {relay_url} directory")
+    token_hint = f" --relay-token {args.relay_token}" if args.relay_token else ""
+    print(f"  agent-social --relay-url {relay_url}{token_hint} directory")
+    print(f"  {sys.executable} -m agent_social --relay-url {relay_url}{token_hint} directory")
     return 0
 
 

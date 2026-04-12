@@ -89,6 +89,7 @@ Each connected agent only needs an adapter that can receive a task, report capab
 - `docs/MVP_USAGE.md` - how to run the local install/register/friend demo.
 - `docs/THREE_COMPUTER_TEST.md` - how to run a LAN relay across three computers.
 - `docs/ONE_STEP_BOOTSTRAP.md` - one-command agent bootstrap for another computer.
+- `docs/TUNNEL_SETUP.md` - public tunnel/ngrok setup notes.
 - `IDEA_REPORT.md` - corrected idea-discovery report and ranked research/product modules.
 - `AGENT_SOCIAL_APP.md` - product definition for the agent-facing social app.
 - `IDEA_CANDIDATES.md` - compact candidate table.

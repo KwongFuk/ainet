@@ -16,6 +16,7 @@ from typing import Any
 
 DEFAULT_HOME = Path(os.environ.get("AGENT_SOCIAL_HOME", "~/.agent-social")).expanduser()
 DEFAULT_RELAY_URL = os.environ.get("AGENT_SOCIAL_RELAY_URL")
+DEFAULT_RELAY_TOKEN = os.environ.get("AGENT_SOCIAL_RELAY_TOKEN")
 
 
 def utc_now() -> str:
@@ -50,6 +51,7 @@ def write_json_atomic(path: Path, data: dict[str, Any]) -> None:
 class Paths:
     home: Path
     relay_url: str | None = None
+    relay_token: str | None = None
 
     @property
     def config(self) -> Path:
@@ -110,6 +112,9 @@ def http_json(method: str, url: str, payload: dict[str, Any] | None = None) -> d
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
+    token = os.environ.get("AGENT_SOCIAL_RELAY_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
@@ -428,7 +433,16 @@ def cmd_relay_serve(args: argparse.Namespace, paths: Paths) -> int:
     from .relay_server import serve_relay
 
     path = Path(args.path).expanduser() if args.path else paths.relay
-    serve_relay(args.host, args.port, path)
+    bootstrap_path = Path(args.bootstrap_path).expanduser() if args.bootstrap_path else None
+    package_path = Path(args.package_path).expanduser() if args.package_path else None
+    serve_relay(
+        args.host,
+        args.port,
+        path,
+        auth_token=args.auth_token,
+        bootstrap_path=bootstrap_path,
+        package_path=package_path,
+    )
     return 0
 
 
@@ -523,6 +537,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_RELAY_URL,
         help="HTTP relay URL, e.g. http://192.168.1.10:8765",
     )
+    parser.add_argument(
+        "--relay-token",
+        default=DEFAULT_RELAY_TOKEN,
+        help="bearer token for an HTTP relay; can also use AGENT_SOCIAL_RELAY_TOKEN",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     install = sub.add_parser("install", help="install a local agent profile")
@@ -587,6 +606,13 @@ def build_parser() -> argparse.ArgumentParser:
     relay_serve.add_argument("--host", default="127.0.0.1", help="bind host")
     relay_serve.add_argument("--port", type=int, default=8765, help="bind port")
     relay_serve.add_argument("--path", help="relay JSON state path")
+    relay_serve.add_argument(
+        "--auth-token",
+        default=DEFAULT_RELAY_TOKEN,
+        help="require this bearer token for /relay; health stays public",
+    )
+    relay_serve.add_argument("--bootstrap-path", help="serve this file at /agent-social-bootstrap.py")
+    relay_serve.add_argument("--package-path", help="serve this file at /idea-ainet-latest.tar.gz")
     relay_serve.set_defaults(func=cmd_relay_serve)
 
     demo = sub.add_parser("demo", help="run a local install/register/friend demo")
@@ -597,12 +623,15 @@ def build_parser() -> argparse.ArgumentParser:
 def dispatch(argv: list[str], paths: Paths) -> int:
     parser = build_parser()
     relay_args = ["--relay-url", paths.relay_url] if paths.relay_url else []
-    args = parser.parse_args(["--home", str(paths.home), *relay_args, *argv])
+    token_args = ["--relay-token", paths.relay_token] if paths.relay_token else []
+    args = parser.parse_args(["--home", str(paths.home), *relay_args, *token_args, *argv])
     return args.func(args, paths)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    paths = Paths(home=Path(args.home).expanduser(), relay_url=args.relay_url)
+    if args.relay_token:
+        os.environ["AGENT_SOCIAL_RELAY_TOKEN"] = args.relay_token
+    paths = Paths(home=Path(args.home).expanduser(), relay_url=args.relay_url, relay_token=args.relay_token)
     return args.func(args, paths)
