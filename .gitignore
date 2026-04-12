@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.agent-social-demo/
+.agent-social-*/
+*.egg-info/
+dist/
+build/
