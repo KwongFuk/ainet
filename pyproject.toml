@@ -10,3 +10,6 @@ requires-python = ">=3.10"
 
 [project.scripts]
 agent-social = "agent_social.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["agent_social*"]

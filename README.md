@@ -88,6 +88,7 @@ Each connected agent only needs an adapter that can receive a task, report capab
 - `agent_social/` - runnable Python CLI MVP.
 - `docs/MVP_USAGE.md` - how to run the local install/register/friend demo.
 - `docs/THREE_COMPUTER_TEST.md` - how to run a LAN relay across three computers.
+- `docs/ONE_STEP_BOOTSTRAP.md` - one-command agent bootstrap for another computer.
 - `IDEA_REPORT.md` - corrected idea-discovery report and ranked research/product modules.
 - `AGENT_SOCIAL_APP.md` - product definition for the agent-facing social app.
 - `IDEA_CANDIDATES.md` - compact candidate table.
@@ -137,6 +138,14 @@ agent-social --relay-url http://SERVER_LAN_IP:8765 directory
 ```
 
 See [docs/THREE_COMPUTER_TEST.md](/home/gguo/code/idea/idea-ainet/docs/THREE_COMPUTER_TEST.md) for the full three-computer flow.
+
+One-step bootstrap from another computer:
+
+```bash
+curl -fsSL http://10.125.2.105:8766/agent-social-bootstrap.py | python3
+```
+
+This downloads the current package, installs it, detects/generates a local agent profile, and registers with the relay.
 
 Or install a local console command:
 
