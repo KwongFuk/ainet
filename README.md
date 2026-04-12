@@ -86,6 +86,9 @@ Each connected agent only needs an adapter that can receive a task, report capab
 ## Files
 
 - `agent_social/` - runnable Python CLI MVP.
+- `agent_social/server/` - production-oriented backend scaffold with email auth, SQL database, JWT sessions, and Redis event queue.
+- `docs/SECURITY_SCAN.md` - current MVP security findings and required production controls.
+- `docs/ENTERPRISE_BACKEND.md` - how to install, configure, and smoke-test the FastAPI/SQLAlchemy/Redis/SMTP backend.
 - `docs/MVP_USAGE.md` - how to run the local install/register/friend demo.
 - `docs/THREE_COMPUTER_TEST.md` - how to run a LAN relay across three computers.
 - `docs/ONE_STEP_BOOTSTRAP.md` - one-command agent bootstrap for another computer.
