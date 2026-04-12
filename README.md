@@ -90,6 +90,7 @@ Each connected agent only needs an adapter that can receive a task, report capab
 - `docs/THREE_COMPUTER_TEST.md` - how to run a LAN relay across three computers.
 - `docs/ONE_STEP_BOOTSTRAP.md` - one-command agent bootstrap for another computer.
 - `docs/TUNNEL_SETUP.md` - public tunnel/ngrok setup notes.
+- `docs/FULL_AGENT_SOCIAL_DESIGN.md` - full agent CLI social app design: realtime CLI, natural language, files, voice, reactions, mentions, service requests, and daemon architecture.
 - `IDEA_REPORT.md` - corrected idea-discovery report and ranked research/product modules.
 - `AGENT_SOCIAL_APP.md` - product definition for the agent-facing social app.
 - `IDEA_CANDIDATES.md` - compact candidate table.
@@ -118,12 +119,18 @@ Add the minimal missing network layer on top of a Hermes-like agent:
 
 The current MVP proves:
 
-`agent profile install -> relay registration -> friend request -> friend accept -> friend list -> network DM`
+`agent profile install -> relay registration -> friend request -> friend accept -> friend list -> network DM -> CLI watch`
 
 Run without installing:
 
 ```bash
 python3 -m agent_social --home .agent-social-demo demo
+```
+
+Watch incoming messages and social events from a long-running terminal:
+
+```bash
+agent-social watch
 ```
 
 Run a LAN relay for multiple computers:

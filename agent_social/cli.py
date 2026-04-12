@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -433,6 +434,91 @@ def cmd_dm_inbox(args: argparse.Namespace, paths: Paths) -> int:
     return 0
 
 
+def watch_events(relay: dict[str, Any], account_id: str) -> list[dict[str, str]]:
+    events: list[dict[str, str]] = []
+    for request in relay["friend_requests"].values():
+        if request["to_account_id"] == account_id and request["status"] == "pending":
+            events.append(
+                {
+                    "event_id": f"friend_request:{request['request_id']}:pending",
+                    "kind": "friend_request",
+                    "timestamp": request.get("created_at", ""),
+                    "line": (
+                        f"[friend request] {request['from_handle']} -> {request['to_handle']} "
+                        f"{request['request_id']}"
+                    ),
+                    "body": request.get("message", ""),
+                }
+            )
+        if request["from_account_id"] == account_id and request["status"] == "accepted":
+            events.append(
+                {
+                    "event_id": f"friend_request:{request['request_id']}:accepted",
+                    "kind": "friend_accept",
+                    "timestamp": request.get("accepted_at") or request.get("created_at", ""),
+                    "line": (
+                        f"[friend accepted] {request['to_handle']} accepted "
+                        f"{request['request_id']}"
+                    ),
+                    "body": "",
+                }
+            )
+    for message in relay["messages"].values():
+        if message["to_account_id"] != account_id:
+            continue
+        events.append(
+            {
+                "event_id": f"message:{message['message_id']}",
+                "kind": "message",
+                "timestamp": message.get("created_at", ""),
+                "line": (
+                    f"[dm] {message['from_handle']} -> {message['to_handle']} "
+                    f"{message['message_id']} {message.get('created_at', '')}"
+                ),
+                "body": message.get("body", ""),
+            }
+        )
+    return sorted(events, key=lambda item: (item["timestamp"], item["event_id"]))
+
+
+def print_watch_event(event: dict[str, str]) -> None:
+    print(event["line"], flush=True)
+    body = event.get("body")
+    if body:
+        print(f"  {body}", flush=True)
+
+
+def cmd_watch(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    profile_name = resolve_profile_name(args, config)
+    profile = get_profile(config, profile_name)
+    if not profile.get("account_id"):
+        raise SystemExit("current profile is not registered. Run `register` first.")
+    account_id = profile["account_id"]
+    print(f"watching `{profile['handle']}` every {args.interval:g}s; press Ctrl-C to stop", flush=True)
+    seen: set[str] = set()
+    first = True
+    while True:
+        relay = load_relay(paths)
+        events = watch_events(relay, account_id)
+        if first and not args.show_existing:
+            seen.update(event["event_id"] for event in events)
+        else:
+            for event in events:
+                if event["event_id"] in seen:
+                    continue
+                print_watch_event(event)
+                seen.add(event["event_id"])
+        first = False
+        if args.once:
+            return 0
+        try:
+            time.sleep(args.interval)
+        except KeyboardInterrupt:
+            print("\nwatch stopped")
+            return 0
+
+
 def cmd_relay_serve(args: argparse.Namespace, paths: Paths) -> int:
     from .relay_server import serve_relay
 
@@ -603,6 +689,13 @@ def build_parser() -> argparse.ArgumentParser:
     dm_inbox.add_argument("--profile", help="local profile name")
     dm_inbox.add_argument("--all", action="store_true", help="include sent messages")
     dm_inbox.set_defaults(func=cmd_dm_inbox)
+
+    watch = sub.add_parser("watch", help="print incoming messages and social events as they arrive")
+    watch.add_argument("--profile", help="local profile name")
+    watch.add_argument("--interval", type=float, default=2.0, help="poll interval in seconds")
+    watch.add_argument("--show-existing", action="store_true", help="print currently unseen relay events immediately")
+    watch.add_argument("--once", action="store_true", help="check once and exit")
+    watch.set_defaults(func=cmd_watch)
 
     relay = sub.add_parser("relay", help="relay server operations")
     relay_sub = relay.add_subparsers(dest="relay_command", required=True)

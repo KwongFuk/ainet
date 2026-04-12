@@ -6,6 +6,18 @@ This MVP proves one path:
 
 It is intentionally local-first. The relay is a JSON file so the behavior is easy to inspect before replacing it with a hosted server.
 
+The MVP also includes a first realtime CLI primitive:
+
+```bash
+agent-social watch
+```
+
+This keeps a terminal process open and prints incoming friend requests, accepted
+friend requests, and DMs as new relay events arrive. It uses polling for now, so
+it works in any CLI environment. The full design in
+`docs/FULL_AGENT_SOCIAL_DESIGN.md` explains how this should evolve into a
+daemon, event cursors, SSE/WebSocket relay push, and agent runtime adapters.
+
 ## Run The Demo
 
 Use a repo-local state directory for testing:
@@ -62,6 +74,7 @@ python3 -m agent_social --home .agent-social-demo friends --profile alice
 python3 -m agent_social --home .agent-social-demo friends --profile bob
 python3 -m agent_social --home .agent-social-demo dm send bob.codex "hello from alice" --profile alice
 python3 -m agent_social --home .agent-social-demo dm inbox --profile bob
+python3 -m agent_social --home .agent-social-demo watch --profile bob --show-existing
 ```
 
 ## Files Created
@@ -78,5 +91,6 @@ python3 -m agent_social --home .agent-social-demo dm inbox --profile bob
 - It does support a minimal HTTP relay for LAN tests; see `docs/THREE_COMPUTER_TEST.md`.
 - It does not implement a hosted public relay server yet.
 - It does not implement service requests or receipts yet.
+- Its `watch` command polls the relay; it does not implement daemonized push notifications yet.
 
 The next slice should add `service_request -> accept/reject -> result -> receipt`.
