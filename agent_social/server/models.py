@@ -104,3 +104,137 @@ class QueuedEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+
+class Provider(Base):
+    __tablename__ = "providers"
+
+    provider_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("prov"))
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    agent_id: Mapped[str | None] = mapped_column(ForeignKey("agent_accounts.agent_id"), nullable=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(160))
+    provider_type: Mapped[str] = mapped_column(String(40), default="agent")
+    verification_status: Mapped[str] = mapped_column(String(40), default="unverified", index=True)
+    website: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class ServiceProfile(Base):
+    __tablename__ = "service_profiles"
+
+    service_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("svc"))
+    provider_id: Mapped[str] = mapped_column(ForeignKey("providers.provider_id"), index=True)
+    title: Mapped[str] = mapped_column(String(200), index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    category: Mapped[str] = mapped_column(String(80), default="general", index=True)
+    pricing_model: Mapped[str] = mapped_column(String(60), default="quote")
+    currency: Mapped[str] = mapped_column(String(12), default="credits")
+    base_price_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    input_schema_json: Mapped[str] = mapped_column(Text, default="{}")
+    output_schema_json: Mapped[str] = mapped_column(Text, default="{}")
+    sla_json: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[str] = mapped_column(String(40), default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class Capability(Base):
+    __tablename__ = "capabilities"
+
+    capability_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("cap"))
+    service_id: Mapped[str] = mapped_column(ForeignKey("service_profiles.service_id"), index=True)
+    name: Mapped[str] = mapped_column(String(120), index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    input_schema_json: Mapped[str] = mapped_column(Text, default="{}")
+    output_schema_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ServiceTask(Base):
+    __tablename__ = "service_tasks"
+
+    task_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("task"))
+    requester_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    service_id: Mapped[str] = mapped_column(ForeignKey("service_profiles.service_id"), index=True)
+    capability_id: Mapped[str | None] = mapped_column(ForeignKey("capabilities.capability_id"), nullable=True, index=True)
+    provider_id: Mapped[str] = mapped_column(ForeignKey("providers.provider_id"), index=True)
+    status: Mapped[str] = mapped_column(String(40), default="submitted", index=True)
+    input_json: Mapped[str] = mapped_column(Text, default="{}")
+    result_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class Artifact(Base):
+    __tablename__ = "artifacts"
+
+    artifact_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("art"))
+    task_id: Mapped[str | None] = mapped_column(ForeignKey("service_tasks.task_id"), nullable=True, index=True)
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    filename: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str] = mapped_column(String(120), default="application/octet-stream")
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    sha256: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    storage_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class Quote(Base):
+    __tablename__ = "quotes"
+
+    quote_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("quote"))
+    task_id: Mapped[str] = mapped_column(ForeignKey("service_tasks.task_id"), index=True)
+    provider_id: Mapped[str] = mapped_column(ForeignKey("providers.provider_id"), index=True)
+    amount_cents: Mapped[int] = mapped_column(Integer, default=0)
+    currency: Mapped[str] = mapped_column(String(12), default="credits")
+    status: Mapped[str] = mapped_column(String(40), default="offered", index=True)
+    terms_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ServiceOrder(Base):
+    __tablename__ = "service_orders"
+
+    order_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("ord"))
+    task_id: Mapped[str] = mapped_column(ForeignKey("service_tasks.task_id"), index=True)
+    quote_id: Mapped[str | None] = mapped_column(ForeignKey("quotes.quote_id"), nullable=True, index=True)
+    buyer_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    provider_id: Mapped[str] = mapped_column(ForeignKey("providers.provider_id"), index=True)
+    status: Mapped[str] = mapped_column(String(40), default="created", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class PaymentRecord(Base):
+    __tablename__ = "payment_records"
+
+    payment_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("pay"))
+    order_id: Mapped[str] = mapped_column(ForeignKey("service_orders.order_id"), index=True)
+    amount_cents: Mapped[int] = mapped_column(Integer, default=0)
+    currency: Mapped[str] = mapped_column(String(12), default="credits")
+    status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
+    provider_reference: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class Rating(Base):
+    __tablename__ = "ratings"
+
+    rating_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("rate"))
+    task_id: Mapped[str] = mapped_column(ForeignKey("service_tasks.task_id"), index=True)
+    reviewer_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    provider_id: Mapped[str] = mapped_column(ForeignKey("providers.provider_id"), index=True)
+    score: Mapped[int] = mapped_column(Integer)
+    comment: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    audit_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("audit"))
+    actor_user_id: Mapped[str | None] = mapped_column(ForeignKey("human_accounts.user_id"), nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(120), index=True)
+    target_type: Mapped[str] = mapped_column(String(80), index=True)
+    target_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)

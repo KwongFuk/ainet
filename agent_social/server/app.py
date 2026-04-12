@@ -14,17 +14,46 @@ from sqlalchemy.orm import Session
 from .config import Settings, get_settings
 from .database import get_db, init_db
 from .emailer import send_verification_code
-from .models import AgentAccount, DeviceSession, EmailVerificationCode, HumanAccount, QueuedEvent, utc_now
+from .models import (
+    AgentAccount,
+    Artifact,
+    AuditLog,
+    Capability,
+    DeviceSession,
+    EmailVerificationCode,
+    HumanAccount,
+    Provider,
+    QueuedEvent,
+    Quote,
+    Rating,
+    ServiceProfile,
+    ServiceTask,
+    utc_now,
+)
 from .queue import EventBus
 from .schemas import (
     AgentCreateRequest,
     AgentResponse,
+    ArtifactCreateRequest,
+    ArtifactResponse,
+    CapabilityInput,
     EventResponse,
     LoginRequest,
     MeResponse,
     MessageRequest,
+    ProviderCreateRequest,
+    ProviderResponse,
+    QuoteCreateRequest,
+    QuoteResponse,
+    RatingCreateRequest,
+    RatingResponse,
+    ServiceProfileCreateRequest,
+    ServiceProfileResponse,
     SignupRequest,
     SignupResponse,
+    TaskCreateRequest,
+    TaskResponse,
+    TaskResultRequest,
     TokenResponse,
     VerifyEmailRequest,
 )
@@ -45,6 +74,63 @@ def as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def dump_json(value: dict) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def parse_json(value: str) -> dict:
+    return json.loads(value or "{}")
+
+
+def capability_response(capability: Capability) -> CapabilityInput:
+    return CapabilityInput(
+        name=capability.name,
+        description=capability.description,
+        input_schema=parse_json(capability.input_schema_json),
+        output_schema=parse_json(capability.output_schema_json),
+    )
+
+
+def service_profile_response(db: Session, service: ServiceProfile) -> ServiceProfileResponse:
+    capabilities = db.scalars(select(Capability).where(Capability.service_id == service.service_id)).all()
+    return ServiceProfileResponse(
+        service_id=service.service_id,
+        provider_id=service.provider_id,
+        title=service.title,
+        description=service.description,
+        category=service.category,
+        pricing_model=service.pricing_model,
+        currency=service.currency,
+        base_price_cents=service.base_price_cents,
+        status=service.status,
+        capabilities=[capability_response(capability) for capability in capabilities],
+    )
+
+
+def task_response(task: ServiceTask) -> TaskResponse:
+    return TaskResponse(
+        task_id=task.task_id,
+        service_id=task.service_id,
+        provider_id=task.provider_id,
+        capability_id=task.capability_id,
+        status=task.status,
+        input=parse_json(task.input_json),
+        result=parse_json(task.result_json),
+    )
+
+
+def audit(db: Session, user: HumanAccount, action: str, target_type: str, target_id: str | None, payload: dict) -> None:
+    db.add(
+        AuditLog(
+            actor_user_id=user.user_id,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
+            payload_json=dump_json(payload),
+        )
+    )
 
 
 def create_app() -> FastAPI:
@@ -208,6 +294,283 @@ def create_app() -> FastAPI:
             event_type=event.event_type,
             account_id=event.account_id,
             payload=json.loads(event.payload_json),
+        )
+
+    @app.post("/providers", response_model=ProviderResponse, status_code=status.HTTP_201_CREATED)
+    async def create_provider(
+        payload: ProviderCreateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+    ) -> ProviderResponse:
+        if payload.agent_id:
+            agent = db.get(AgentAccount, payload.agent_id)
+            if not agent or agent.owner_user_id != user.user_id:
+                raise HTTPException(status_code=404, detail="agent not found for this account")
+        provider = Provider(
+            owner_user_id=user.user_id,
+            agent_id=payload.agent_id,
+            display_name=payload.display_name,
+            provider_type=payload.provider_type,
+            website=payload.website,
+        )
+        db.add(provider)
+        db.flush()
+        audit(db, user, "provider.create", "provider", provider.provider_id, {"display_name": provider.display_name})
+        db.commit()
+        db.refresh(provider)
+        await app.state.event_bus.publish(
+            db,
+            "provider.created",
+            {"provider_id": provider.provider_id, "display_name": provider.display_name},
+            user.user_id,
+        )
+        return ProviderResponse(
+            provider_id=provider.provider_id,
+            display_name=provider.display_name,
+            provider_type=provider.provider_type,
+            verification_status=provider.verification_status,
+            agent_id=provider.agent_id,
+        )
+
+    @app.post("/service-profiles", response_model=ServiceProfileResponse, status_code=status.HTTP_201_CREATED)
+    async def create_service_profile(
+        payload: ServiceProfileCreateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+    ) -> ServiceProfileResponse:
+        provider = db.get(Provider, payload.provider_id)
+        if not provider or provider.owner_user_id != user.user_id:
+            raise HTTPException(status_code=404, detail="provider not found for this account")
+        service = ServiceProfile(
+            provider_id=provider.provider_id,
+            title=payload.title,
+            description=payload.description,
+            category=payload.category,
+            pricing_model=payload.pricing_model,
+            currency=payload.currency,
+            base_price_cents=payload.base_price_cents,
+            input_schema_json=dump_json(payload.input_schema),
+            output_schema_json=dump_json(payload.output_schema),
+            sla_json=dump_json(payload.sla),
+        )
+        db.add(service)
+        db.flush()
+        for item in payload.capabilities:
+            db.add(
+                Capability(
+                    service_id=service.service_id,
+                    name=item.name,
+                    description=item.description,
+                    input_schema_json=dump_json(item.input_schema),
+                    output_schema_json=dump_json(item.output_schema),
+                )
+            )
+        audit(db, user, "service_profile.create", "service_profile", service.service_id, {"title": service.title})
+        db.commit()
+        db.refresh(service)
+        await app.state.event_bus.publish(
+            db,
+            "service_profile.created",
+            {"service_id": service.service_id, "provider_id": provider.provider_id, "title": service.title},
+            user.user_id,
+        )
+        return service_profile_response(db, service)
+
+    @app.get("/service-profiles", response_model=list[ServiceProfileResponse])
+    def search_service_profiles(
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+        query: str | None = None,
+        category: str | None = None,
+        capability: str | None = None,
+        limit: int = 20,
+    ) -> list[ServiceProfileResponse]:
+        stmt = select(ServiceProfile).where(ServiceProfile.status == "active")
+        if category:
+            stmt = stmt.where(ServiceProfile.category == category)
+        if query:
+            pattern = f"%{query.lower()}%"
+            stmt = stmt.where(ServiceProfile.title.ilike(pattern) | ServiceProfile.description.ilike(pattern))
+        if capability:
+            stmt = stmt.join(Capability, Capability.service_id == ServiceProfile.service_id).where(Capability.name == capability)
+        services = db.scalars(stmt.limit(min(limit, 100))).all()
+        return [service_profile_response(db, service) for service in services]
+
+    @app.post("/tasks", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
+    async def create_task(
+        payload: TaskCreateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+    ) -> TaskResponse:
+        service = db.get(ServiceProfile, payload.service_id)
+        if not service or service.status != "active":
+            raise HTTPException(status_code=404, detail="service profile not found")
+        if payload.capability_id:
+            capability = db.get(Capability, payload.capability_id)
+            if not capability or capability.service_id != service.service_id:
+                raise HTTPException(status_code=404, detail="capability not found for this service")
+        task = ServiceTask(
+            requester_user_id=user.user_id,
+            service_id=service.service_id,
+            capability_id=payload.capability_id,
+            provider_id=service.provider_id,
+            input_json=dump_json(payload.input),
+        )
+        db.add(task)
+        db.flush()
+        audit(db, user, "task.create", "task", task.task_id, {"service_id": service.service_id})
+        db.commit()
+        db.refresh(task)
+        await app.state.event_bus.publish(
+            db,
+            "task.created",
+            {"task_id": task.task_id, "service_id": service.service_id, "provider_id": service.provider_id},
+            user.user_id,
+        )
+        return task_response(task)
+
+    @app.post("/artifacts", response_model=ArtifactResponse, status_code=status.HTTP_201_CREATED)
+    async def create_artifact(
+        payload: ArtifactCreateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+    ) -> ArtifactResponse:
+        if payload.task_id and not db.get(ServiceTask, payload.task_id):
+            raise HTTPException(status_code=404, detail="task not found")
+        artifact = Artifact(
+            task_id=payload.task_id,
+            owner_user_id=user.user_id,
+            filename=payload.filename,
+            content_type=payload.content_type,
+            size_bytes=payload.size_bytes,
+            sha256=payload.sha256,
+            storage_url=payload.storage_url,
+        )
+        db.add(artifact)
+        db.flush()
+        audit(db, user, "artifact.create", "artifact", artifact.artifact_id, {"task_id": artifact.task_id})
+        db.commit()
+        db.refresh(artifact)
+        await app.state.event_bus.publish(
+            db,
+            "artifact.created",
+            {"artifact_id": artifact.artifact_id, "task_id": artifact.task_id, "filename": artifact.filename},
+            user.user_id,
+        )
+        return ArtifactResponse(
+            artifact_id=artifact.artifact_id,
+            task_id=artifact.task_id,
+            filename=artifact.filename,
+            content_type=artifact.content_type,
+            size_bytes=artifact.size_bytes,
+            sha256=artifact.sha256,
+            storage_url=artifact.storage_url,
+        )
+
+    @app.post("/tasks/{task_id}/quote", response_model=QuoteResponse, status_code=status.HTTP_201_CREATED)
+    async def create_quote(
+        task_id: str,
+        payload: QuoteCreateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+    ) -> QuoteResponse:
+        task = db.get(ServiceTask, task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="task not found")
+        provider = db.get(Provider, task.provider_id)
+        if not provider or provider.owner_user_id != user.user_id:
+            raise HTTPException(status_code=403, detail="only provider owner can quote this task")
+        quote = Quote(
+            task_id=task.task_id,
+            provider_id=task.provider_id,
+            amount_cents=payload.amount_cents,
+            currency=payload.currency,
+            terms_json=dump_json(payload.terms),
+        )
+        db.add(quote)
+        db.flush()
+        task.status = "quoted"
+        audit(db, user, "quote.create", "quote", quote.quote_id, {"task_id": task.task_id})
+        db.commit()
+        db.refresh(quote)
+        await app.state.event_bus.publish(
+            db,
+            "quote.created",
+            {"quote_id": quote.quote_id, "task_id": task.task_id, "amount_cents": quote.amount_cents},
+            task.requester_user_id,
+        )
+        return QuoteResponse(
+            quote_id=quote.quote_id,
+            task_id=quote.task_id,
+            provider_id=quote.provider_id,
+            amount_cents=quote.amount_cents,
+            currency=quote.currency,
+            status=quote.status,
+            terms=parse_json(quote.terms_json),
+        )
+
+    @app.post("/tasks/{task_id}/result", response_model=TaskResponse)
+    async def complete_task(
+        task_id: str,
+        payload: TaskResultRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+    ) -> TaskResponse:
+        task = db.get(ServiceTask, task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="task not found")
+        provider = db.get(Provider, task.provider_id)
+        if not provider or provider.owner_user_id != user.user_id:
+            raise HTTPException(status_code=403, detail="only provider owner can submit result")
+        task.status = payload.status
+        task.result_json = dump_json(payload.result)
+        audit(db, user, "task.result", "task", task.task_id, {"status": task.status})
+        db.commit()
+        db.refresh(task)
+        await app.state.event_bus.publish(
+            db,
+            "task.completed",
+            {"task_id": task.task_id, "status": task.status},
+            task.requester_user_id,
+        )
+        return task_response(task)
+
+    @app.post("/tasks/{task_id}/rating", response_model=RatingResponse, status_code=status.HTTP_201_CREATED)
+    async def rate_task(
+        task_id: str,
+        payload: RatingCreateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+    ) -> RatingResponse:
+        task = db.get(ServiceTask, task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="task not found")
+        if task.requester_user_id != user.user_id:
+            raise HTTPException(status_code=403, detail="only requester can rate this task")
+        rating = Rating(
+            task_id=task.task_id,
+            reviewer_user_id=user.user_id,
+            provider_id=task.provider_id,
+            score=payload.score,
+            comment=payload.comment,
+        )
+        db.add(rating)
+        db.flush()
+        audit(db, user, "rating.create", "rating", rating.rating_id, {"task_id": task.task_id, "score": rating.score})
+        db.commit()
+        db.refresh(rating)
+        await app.state.event_bus.publish(
+            db,
+            "rating.created",
+            {"rating_id": rating.rating_id, "task_id": task.task_id, "score": rating.score},
+            user.user_id,
+        )
+        return RatingResponse(
+            rating_id=rating.rating_id,
+            task_id=rating.task_id,
+            provider_id=rating.provider_id,
+            score=rating.score,
+            comment=rating.comment,
         )
 
     @app.get("/events", response_model=list[EventResponse])

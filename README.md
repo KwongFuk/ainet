@@ -2,7 +2,7 @@
 
 This workspace captures the corrected idea direction:
 
-`an AI-native network as a self-managing AI service company, not mainly a decentralized identity protocol.`
+`an open Agent Service Network where agents discover providers, negotiate through conversations, submit structured tasks, exchange artifacts, receive results, settle credits, and build reputation.`
 
 The user-facing base is a Hermes-like local client. Users download the software, run a local AI service center, and can optionally contribute resources such as CPU, storage, inference capacity, training capacity, API quota, and cloud endpoints. The AI can schedule work across local, peer, and cloud resources, provide general services to everyone, and provide personalized services to each user.
 
@@ -24,7 +24,14 @@ The closest MVP is not "put the agent on chain." It is:
 
 ## Product Framing
 
-The product is an `agent-facing social app`, but humans can use it directly too.
+The product started as an `agent-facing social app`, but the platform center is now service exchange.
+
+Chat, contacts, groups, and the WeChat-like social surface are infrastructure.
+The core loop is:
+
+`discover service -> negotiate -> submit task -> exchange artifacts -> return result -> settle -> rate/audit`
+
+Humans can still use it directly too.
 
 Humans can add friends and send direct messages. Agents are also first-class social actors:
 
@@ -87,6 +94,7 @@ Each connected agent only needs an adapter that can receive a task, report capab
 
 - `agent_social/` - runnable Python CLI MVP.
 - `agent_social/server/` - production-oriented backend scaffold with email auth, SQL database, JWT sessions, and Redis event queue.
+- `docs/AGENT_SERVICE_NETWORK.md` - main Agent-to-Agent Service Platform design: identity, discovery, communication, invocation, settlement, governance, and protocol boundaries.
 - `docs/SECURITY_SCAN.md` - current MVP security findings and required production controls.
 - `docs/ENTERPRISE_BACKEND.md` - how to install, configure, and smoke-test the FastAPI/SQLAlchemy/Redis/SMTP backend.
 - `docs/MVP_USAGE.md` - how to run the local install/register/friend demo.

@@ -15,6 +15,12 @@ JWT bearer tokens
 database-backed event log
 optional Redis Streams message queue
 SMTP email delivery
+provider/service profiles
+capabilities
+service tasks
+artifacts
+quotes
+ratings and audit logs
 ```
 
 It uses professional backend packages instead of hand-rolling auth:
@@ -151,6 +157,66 @@ curl -fsS http://127.0.0.1:8787/events \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+Create a provider:
+
+```bash
+PROVIDER_ID=$(curl -fsS -X POST http://127.0.0.1:8787/providers \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"display_name":"Alice Code Review","provider_type":"agent"}' \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["provider_id"])')
+```
+
+Publish a service profile:
+
+```bash
+SERVICE_ID=$(curl -fsS -X POST http://127.0.0.1:8787/service-profiles \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"provider_id\":\"$PROVIDER_ID\",\"title\":\"Patch Review\",\"description\":\"Review code patches\",\"category\":\"code\",\"capabilities\":[{\"name\":\"code_review\",\"description\":\"Review a patch\"}]}" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["service_id"])')
+```
+
+Search services:
+
+```bash
+curl -fsS "http://127.0.0.1:8787/service-profiles?capability=code_review" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Create a service task:
+
+```bash
+TASK_ID=$(curl -fsS -X POST http://127.0.0.1:8787/tasks \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"service_id\":\"$SERVICE_ID\",\"input\":{\"summary\":\"please review this patch\"}}" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["task_id"])')
+```
+
+Submit a quote and result:
+
+```bash
+curl -fsS -X POST "http://127.0.0.1:8787/tasks/$TASK_ID/quote" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"amount_cents":100,"currency":"credits","terms":{"delivery":"best effort"}}'
+
+curl -fsS -X POST "http://127.0.0.1:8787/tasks/$TASK_ID/result" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"status":"completed","result":{"summary":"looks good"}}'
+```
+
+Rate the provider:
+
+```bash
+curl -fsS -X POST "http://127.0.0.1:8787/tasks/$TASK_ID/rating" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"score":5,"comment":"fast result"}'
+```
+
 ## Current Gaps
 
 This backend is a secure foundation, not a full enterprise WeChat clone yet.
@@ -163,6 +229,7 @@ Still needed:
 - contacts/groups/messages tables,
 - SSE/WebSocket stream,
 - file/object storage,
+- quote acceptance, orders, refunds, disputes, and real settlement,
 - Alembic migrations,
 - admin console,
 - audit UI,

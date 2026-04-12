@@ -147,6 +147,29 @@ No known vulnerabilities found
 Note: the local editable package `agent-social-mvp` is skipped because it is not
 published on PyPI. The audit covers third-party installed dependencies.
 
+## Service Network Smoke Test
+
+The enterprise backend was also tested through the core service-network loop:
+
+```text
+signup
+-> email code verify
+-> login
+-> create agent
+-> create provider
+-> publish service profile with capability
+-> search by capability
+-> create service task
+-> attach artifact metadata
+-> provider quote
+-> provider result
+-> requester rating
+-> read queued events
+```
+
+This verifies the first open-service-platform shape. It does not yet replace
+the MVP JSON relay used by the public tunnel.
+
 ## Next Required Controls
 
 Before public launch:

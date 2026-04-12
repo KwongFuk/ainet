@@ -65,3 +65,120 @@ class EventResponse(BaseModel):
     account_id: str | None
     payload: dict
 
+
+class CapabilityInput(BaseModel):
+    name: str = Field(min_length=2, max_length=120, pattern=r"^[a-z0-9_.:-]+$")
+    description: str = Field(default="", max_length=2000)
+    input_schema: dict = Field(default_factory=dict)
+    output_schema: dict = Field(default_factory=dict)
+
+
+class ProviderCreateRequest(BaseModel):
+    display_name: str = Field(min_length=2, max_length=160)
+    provider_type: str = Field(default="agent", max_length=40)
+    agent_id: str | None = Field(default=None, max_length=40)
+    website: str | None = Field(default=None, max_length=500)
+
+
+class ProviderResponse(BaseModel):
+    provider_id: str
+    display_name: str
+    provider_type: str
+    verification_status: str
+    agent_id: str | None
+
+
+class ServiceProfileCreateRequest(BaseModel):
+    provider_id: str = Field(max_length=40)
+    title: str = Field(min_length=3, max_length=200)
+    description: str = Field(default="", max_length=8000)
+    category: str = Field(default="general", max_length=80)
+    pricing_model: str = Field(default="quote", max_length=60)
+    currency: str = Field(default="credits", max_length=12)
+    base_price_cents: int | None = Field(default=None, ge=0)
+    input_schema: dict = Field(default_factory=dict)
+    output_schema: dict = Field(default_factory=dict)
+    sla: dict = Field(default_factory=dict)
+    capabilities: list[CapabilityInput] = Field(default_factory=list)
+
+
+class ServiceProfileResponse(BaseModel):
+    service_id: str
+    provider_id: str
+    title: str
+    description: str
+    category: str
+    pricing_model: str
+    currency: str
+    base_price_cents: int | None
+    status: str
+    capabilities: list[CapabilityInput] = Field(default_factory=list)
+
+
+class TaskCreateRequest(BaseModel):
+    service_id: str = Field(max_length=40)
+    capability_id: str | None = Field(default=None, max_length=40)
+    input: dict = Field(default_factory=dict)
+
+
+class TaskResponse(BaseModel):
+    task_id: str
+    service_id: str
+    provider_id: str
+    capability_id: str | None
+    status: str
+    input: dict
+    result: dict
+
+
+class ArtifactCreateRequest(BaseModel):
+    task_id: str | None = Field(default=None, max_length=40)
+    filename: str = Field(min_length=1, max_length=255)
+    content_type: str = Field(default="application/octet-stream", max_length=120)
+    size_bytes: int = Field(default=0, ge=0)
+    sha256: str | None = Field(default=None, min_length=64, max_length=64)
+    storage_url: str | None = Field(default=None, max_length=1000)
+
+
+class ArtifactResponse(BaseModel):
+    artifact_id: str
+    task_id: str | None
+    filename: str
+    content_type: str
+    size_bytes: int
+    sha256: str | None
+    storage_url: str | None
+
+
+class QuoteCreateRequest(BaseModel):
+    amount_cents: int = Field(ge=0)
+    currency: str = Field(default="credits", max_length=12)
+    terms: dict = Field(default_factory=dict)
+
+
+class QuoteResponse(BaseModel):
+    quote_id: str
+    task_id: str
+    provider_id: str
+    amount_cents: int
+    currency: str
+    status: str
+    terms: dict
+
+
+class TaskResultRequest(BaseModel):
+    status: str = Field(default="completed", max_length=40)
+    result: dict = Field(default_factory=dict)
+
+
+class RatingCreateRequest(BaseModel):
+    score: int = Field(ge=1, le=5)
+    comment: str = Field(default="", max_length=4000)
+
+
+class RatingResponse(BaseModel):
+    rating_id: str
+    task_id: str
+    provider_id: str
+    score: int
+    comment: str
