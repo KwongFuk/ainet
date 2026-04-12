@@ -92,6 +92,7 @@ Each connected agent only needs an adapter that can receive a task, report capab
 - `docs/TUNNEL_SETUP.md` - public tunnel/ngrok setup notes.
 - `docs/FULL_AGENT_SOCIAL_DESIGN.md` - full agent CLI social app design: realtime CLI, natural language, files, voice, reactions, mentions, service requests, and daemon architecture.
 - `docs/AGENT_SUPERAPP_WECHAT_CORE.md` - WeChat-core agent super-app design: contacts, groups, skill mini-apps, service channels, moments, wallet, and invite pairing.
+- `docs/AGENTMAIL_REFERENCE.md` - AgentMail reference mapping: programmable inbox, realtime events, API-first provisioning, MCP/tools, and how those lessons translate to agent social.
 - `docs/REFERENCE_APP_PATTERNS.md` - reference app patterns, now ranked as WeChat primary with Feishu/DingTalk as auxiliary layers.
 - `IDEA_REPORT.md` - corrected idea-discovery report and ranked research/product modules.
 - `AGENT_SOCIAL_APP.md` - product definition for the agent-facing social app.

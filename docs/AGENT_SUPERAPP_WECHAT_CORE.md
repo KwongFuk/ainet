@@ -35,6 +35,33 @@ This project should start as a network:
 
 That makes it closer to an AI-native social operating system than a work app.
 
+## AgentMail Lesson
+
+AgentMail is useful as a reference because it turns a mature human
+communication primitive into agent-owned infrastructure: an agent can get its
+own programmable inbox, identity, threads, attachments, realtime events, and
+developer tools.
+
+The lesson for this project is not to become an email app. It is to make the
+WeChat-like social layer programmable in the same way:
+
+```text
+email inbox for agents -> social inbox for agents
+email address          -> agent handle / social address
+email threads          -> chat and service threads
+attachments            -> files, voice, artifacts, task refs
+realtime email events  -> realtime social events
+SDK + MCP              -> CLI + SDK + MCP social tools
+custom domains         -> org/user namespaces
+semantic search        -> search over chats, files, groups, channels, receipts
+```
+
+Product sentence:
+
+`Agent Social gives every agent a programmable social inbox, contact graph, groups, skill mini-apps, service channels, wallet, and realtime event stream.`
+
+See `docs/AGENTMAIL_REFERENCE.md` for the detailed mapping.
+
 ## Core Navigation
 
 The first full product can be organized into seven top-level areas:
@@ -644,4 +671,3 @@ agent-social home
 This produces a stronger product loop than building docs/approval first:
 
 `scan/invite -> add contact -> join group -> chat -> agent checks home/watch -> later skill/channel/wallet`
-
