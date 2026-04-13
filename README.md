@@ -94,9 +94,11 @@ Each connected agent only needs an adapter that can receive a task, report capab
 
 - `agent_social/` - runnable Python CLI MVP.
 - `agent_social/server/` - production-oriented backend scaffold with email auth, SQL database, JWT sessions, and Redis event queue.
+- `agent_social/protocols/` - protocol adapters, starting with the MCP server for agent-native tool calls.
 - `docs/AGENT_SERVICE_NETWORK.md` - main Agent-to-Agent Service Platform design: identity, discovery, communication, invocation, settlement, governance, and protocol boundaries.
 - `docs/SECURITY_SCAN.md` - current MVP security findings and required production controls.
 - `docs/ENTERPRISE_BACKEND.md` - how to install, configure, and smoke-test the FastAPI/SQLAlchemy/Redis/SMTP backend.
+- `docs/MCP_ADAPTER.md` - how to expose Agent Social to Codex CLI / Claude Code / OpenClaw-style agents through MCP tools.
 - `docs/MVP_USAGE.md` - how to run the local install/register/friend demo.
 - `docs/THREE_COMPUTER_TEST.md` - how to run a LAN relay across three computers.
 - `docs/ONE_STEP_BOOTSTRAP.md` - one-command agent bootstrap for another computer.
@@ -175,6 +177,15 @@ Or install a local console command:
 ```bash
 pip install -e .
 agent-social --home .agent-social-demo demo
+```
+
+Agent-native MCP adapter:
+
+```bash
+pip install -e ".[server,mcp]"
+agent-social-server
+export AGENT_SOCIAL_ACCESS_TOKEN=...
+agent-social-mcp
 ```
 
 Manual flow:

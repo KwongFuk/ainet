@@ -57,9 +57,11 @@ class AgentResponse(BaseModel):
 class MessageRequest(BaseModel):
     to_handle: str = Field(min_length=3, max_length=120)
     body: str = Field(min_length=1, max_length=8000)
+    from_agent_id: str | None = Field(default=None, max_length=40)
 
 
 class EventResponse(BaseModel):
+    cursor_id: int | None = None
     event_id: str
     event_type: str
     account_id: str | None

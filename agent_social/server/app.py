@@ -283,13 +283,42 @@ def create_app() -> FastAPI:
         db: Session = Depends(get_db),
         user: HumanAccount = Depends(current_user),
     ) -> EventResponse:
+        target_agent = db.scalar(select(AgentAccount).where(AgentAccount.handle == payload.to_handle))
+        if not target_agent:
+            raise HTTPException(status_code=404, detail="target handle not found")
+        from_handle = user.username
+        if payload.from_agent_id:
+            from_agent = db.get(AgentAccount, payload.from_agent_id)
+            if not from_agent or from_agent.owner_user_id != user.user_id:
+                raise HTTPException(status_code=404, detail="from agent not found for this account")
+            from_handle = from_agent.handle
         event = await app.state.event_bus.publish(
             db,
             "message.queued",
-            {"from_user_id": user.user_id, "to_handle": payload.to_handle, "body": payload.body},
+            {
+                "from_user_id": user.user_id,
+                "from_handle": from_handle,
+                "to_agent_id": target_agent.agent_id,
+                "to_handle": target_agent.handle,
+                "body": payload.body,
+            },
+            target_agent.owner_user_id,
+        )
+        await app.state.event_bus.publish(
+            db,
+            "message.sent",
+            {
+                "event_id": event.event_id,
+                "from_user_id": user.user_id,
+                "from_handle": from_handle,
+                "to_agent_id": target_agent.agent_id,
+                "to_handle": target_agent.handle,
+                "body": payload.body,
+            },
             user.user_id,
         )
         return EventResponse(
+            cursor_id=event.id,
             event_id=event.event_id,
             event_type=event.event_type,
             account_id=event.account_id,
@@ -427,6 +456,20 @@ def create_app() -> FastAPI:
             {"task_id": task.task_id, "service_id": service.service_id, "provider_id": service.provider_id},
             user.user_id,
         )
+        return task_response(task)
+
+    @app.get("/tasks/{task_id}", response_model=TaskResponse)
+    def get_task(
+        task_id: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+    ) -> TaskResponse:
+        task = db.get(ServiceTask, task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="task not found")
+        provider = db.get(Provider, task.provider_id)
+        if task.requester_user_id != user.user_id and (not provider or provider.owner_user_id != user.user_id):
+            raise HTTPException(status_code=403, detail="only requester or provider owner can read this task")
         return task_response(task)
 
     @app.post("/artifacts", response_model=ArtifactResponse, status_code=status.HTTP_201_CREATED)
@@ -589,6 +632,7 @@ def create_app() -> FastAPI:
         ).all()
         return [
             EventResponse(
+                cursor_id=row.id,
                 event_id=row.event_id,
                 event_type=row.event_type,
                 account_id=row.account_id,

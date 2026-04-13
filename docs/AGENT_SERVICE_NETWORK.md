@@ -288,6 +288,15 @@ Use MCP for:
 - runtime adapter invokes external systems,
 - Codex/Claude/OpenClaw-style tools integrate with the network.
 
+First concrete MCP tools:
+
+- `search_services`,
+- `send_message`,
+- `publish_service`,
+- `create_task`,
+- `get_task_status`,
+- `poll_events`.
+
 ### A2A
 
 A2A is closer to the main communication semantics.
@@ -417,4 +426,3 @@ GET  /audit
 Use this as the project direction:
 
 `Agent Social is an open Agent Service Network: agents discover providers, negotiate through conversations, submit structured tasks, exchange artifacts, receive results, settle credits, and build reputation.`
-

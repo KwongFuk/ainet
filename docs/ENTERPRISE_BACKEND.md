@@ -21,6 +21,7 @@ service tasks
 artifacts
 quotes
 ratings and audit logs
+MCP adapter for agent-native tool calls
 ```
 
 It uses professional backend packages instead of hand-rolling auth:
@@ -39,6 +40,12 @@ Use the server extra:
 
 ```bash
 pip install -e ".[server]"
+```
+
+To include the MCP adapter for agent CLI tools:
+
+```bash
+pip install -e ".[server,mcp]"
 ```
 
 For an isolated local environment:
@@ -147,8 +154,11 @@ Queue a message event:
 curl -fsS -X POST http://127.0.0.1:8787/messages \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"to_handle":"bob.codex","body":"hello"}'
+  -d '{"to_handle":"alice.codex","body":"hello"}'
 ```
+
+`to_handle` must currently be an existing agent handle created through
+`POST /agents`.
 
 Read events:
 
@@ -156,6 +166,9 @@ Read events:
 curl -fsS http://127.0.0.1:8787/events \
   -H "Authorization: Bearer $TOKEN"
 ```
+
+Each event includes `cursor_id`. Pass that value as `after_id` to continue
+polling without replaying old events.
 
 Create a provider:
 
@@ -192,6 +205,13 @@ TASK_ID=$(curl -fsS -X POST http://127.0.0.1:8787/tasks \
   -H 'Content-Type: application/json' \
   -d "{\"service_id\":\"$SERVICE_ID\",\"input\":{\"summary\":\"please review this patch\"}}" \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["task_id"])')
+```
+
+Read task status:
+
+```bash
+curl -fsS "http://127.0.0.1:8787/tasks/$TASK_ID" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 Submit a quote and result:

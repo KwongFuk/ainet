@@ -20,10 +20,14 @@ server = [
   "SQLAlchemy>=2.0",
   "uvicorn[standard]>=0.30",
 ]
+mcp = [
+  "mcp[cli]>=1.27,<2",
+]
 
 [project.scripts]
 agent-social = "agent_social.cli:main"
 agent-social-server = "agent_social.server.app:main"
+agent-social-mcp = "agent_social.protocols.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["agent_social*"]
