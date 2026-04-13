@@ -196,6 +196,14 @@ Acceptance criteria:
 
 ## Milestone 3: Verifiable Service Execution Loop
 
+Status: first backend slice implemented. Service tasks now start as `created`,
+providers can accept tasks, update execution status, submit result receipts,
+and requesters can verify or reject with structured `VerificationRecord`
+evidence. Ratings are gated on verified or legacy completed tasks. CLI commands
+exist under `ainet service task`, MCP exposes matching service tools, and
+regression tests cover provider/requester authorization, receipts, verification,
+rejection, and reputation updates.
+
 Timebox: 1.5 weeks
 
 Why:

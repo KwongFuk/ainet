@@ -44,6 +44,8 @@ from .models import (
     ServiceOrder,
     ServiceTask,
     SocialMessage,
+    TaskReceipt,
+    VerificationRecord,
     utc_now,
 )
 from .queue import EventBus
@@ -97,9 +99,14 @@ from .schemas import (
     SignupResponse,
     SessionResponse,
     TaskCreateRequest,
+    TaskAcceptRequest,
     TaskResponse,
+    TaskReceiptResponse,
     TaskResultRequest,
+    TaskStatusUpdateRequest,
     TokenResponse,
+    VerificationRecordRequest,
+    VerificationRecordResponse,
     VerifyEmailRequest,
 )
 from .security import (
@@ -173,6 +180,23 @@ DEFAULT_GROUP_PERMISSIONS = [
 ]
 KNOWN_GROUP_PERMISSIONS = set(DEFAULT_GROUP_PERMISSIONS)
 KNOWN_TRUST_LEVELS = {"unknown", "known", "trusted", "privileged", "blocked"}
+KNOWN_TASK_STATUSES = {
+    "created",
+    "quoted",
+    "accepted",
+    "in_progress",
+    "submitted",
+    "verification_running",
+    "verified",
+    "rejected",
+    "failed",
+    "cancelled",
+    "completed",
+}
+PROVIDER_WRITABLE_TASK_STATUSES = {"accepted", "in_progress", "submitted", "verification_running", "failed", "cancelled", "completed"}
+REQUESTER_WRITABLE_TASK_STATUSES = {"cancelled"}
+FINAL_TASK_STATUSES = {"verified", "rejected", "failed", "cancelled", "completed"}
+VERIFICATION_TASK_STATUSES = {"verified", "rejected"}
 
 
 def as_utc(value: datetime) -> datetime:
@@ -228,6 +252,13 @@ def normalize_trust_level(trust_level: str) -> str:
     normalized = trust_level.strip().lower()
     if normalized not in KNOWN_TRUST_LEVELS:
         raise HTTPException(status_code=400, detail=f"unsupported trust level: {trust_level}")
+    return normalized
+
+
+def normalize_task_status(status_value: str) -> str:
+    normalized = status_value.strip().lower()
+    if normalized not in KNOWN_TASK_STATUSES:
+        raise HTTPException(status_code=400, detail=f"unsupported task status: {status_value}")
     return normalized
 
 
@@ -296,6 +327,39 @@ def task_response(task: ServiceTask) -> TaskResponse:
         status=task.status,
         input=parse_json(task.input_json),
         result=parse_json(task.result_json),
+    )
+
+
+def task_receipt_response(receipt: TaskReceipt) -> TaskReceiptResponse:
+    return TaskReceiptResponse(
+        receipt_id=receipt.receipt_id,
+        task_id=receipt.task_id,
+        provider_id=receipt.provider_id,
+        provider_user_id=receipt.provider_user_id,
+        provider_agent_id=receipt.provider_agent_id,
+        receipt_type=receipt.receipt_type,
+        status=receipt.status,
+        summary=receipt.summary,
+        artifact_ids=parse_json_list(receipt.artifact_ids_json),
+        usage=parse_json(receipt.usage_json),
+        result=parse_json(receipt.result_json),
+        created_at=iso(receipt.created_at) or "",
+    )
+
+
+def verification_record_response(record: VerificationRecord) -> VerificationRecordResponse:
+    return VerificationRecordResponse(
+        verification_id=record.verification_id,
+        task_id=record.task_id,
+        verifier_user_id=record.verifier_user_id,
+        verifier_agent_id=record.verifier_agent_id,
+        verification_type=record.verification_type,
+        status=record.status,
+        rubric=parse_json(record.rubric_json),
+        result=parse_json(record.result_json),
+        evidence_artifact_ids=parse_json_list(record.evidence_artifact_ids_json),
+        comment=record.comment,
+        created_at=iso(record.created_at) or "",
     )
 
 
@@ -619,6 +683,50 @@ def visible_task(db: Session, task_id: str, user: HumanAccount) -> ServiceTask:
     if task.requester_user_id != user.user_id and (not provider or provider.owner_user_id != user.user_id):
         raise HTTPException(status_code=403, detail="only requester or provider owner can read this task")
     return task
+
+
+def provider_owned_task(db: Session, task_id: str, user: HumanAccount) -> tuple[ServiceTask, Provider]:
+    task = db.get(ServiceTask, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    provider = db.get(Provider, task.provider_id)
+    if not provider or provider.owner_user_id != user.user_id:
+        raise HTTPException(status_code=403, detail="only provider owner can update this task")
+    return task, provider
+
+
+def requester_owned_task(db: Session, task_id: str, user: HumanAccount) -> tuple[ServiceTask, Provider | None]:
+    task = db.get(ServiceTask, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    if task.requester_user_id != user.user_id:
+        raise HTTPException(status_code=403, detail="only requester can verify this task")
+    provider = db.get(Provider, task.provider_id)
+    return task, provider
+
+
+def validate_agent_owner(db: Session, user: HumanAccount, agent_id: str | None) -> str | None:
+    if not agent_id:
+        return None
+    agent = db.get(AgentAccount, agent_id)
+    if not agent or agent.owner_user_id != user.user_id:
+        raise HTTPException(status_code=404, detail="agent not found for this account")
+    return agent.agent_id
+
+
+def validate_task_artifacts(db: Session, task: ServiceTask, artifact_ids: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for artifact_id in artifact_ids:
+        clean = artifact_id.strip()
+        if not clean:
+            continue
+        if clean in normalized:
+            continue
+        artifact = db.get(Artifact, clean)
+        if not artifact or artifact.task_id != task.task_id:
+            raise HTTPException(status_code=404, detail=f"artifact not found for this task: {artifact_id}")
+        normalized.append(clean)
+    return normalized
 
 
 def create_app() -> FastAPI:
@@ -1893,6 +2001,7 @@ def create_app() -> FastAPI:
             service_id=service.service_id,
             capability_id=payload.capability_id,
             provider_id=service.provider_id,
+            status="created",
             input_json=dump_json(payload.input),
         )
         db.add(task)
@@ -1915,6 +2024,72 @@ def create_app() -> FastAPI:
         user: HumanAccount = Depends(scoped_user("services:read")),
     ) -> TaskResponse:
         return task_response(visible_task(db, task_id, user))
+
+    @app.post("/tasks/{task_id}/accept", response_model=TaskResponse)
+    async def accept_task(
+        task_id: str,
+        payload: TaskAcceptRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("services:write")),
+    ) -> TaskResponse:
+        task, provider = provider_owned_task(db, task_id, user)
+        validate_agent_owner(db, user, payload.accepted_by_agent_id)
+        if task.status in FINAL_TASK_STATUSES:
+            raise HTTPException(status_code=400, detail=f"cannot accept task in {task.status} state")
+        task.status = "accepted"
+        task.updated_at = utc_now()
+        audit(db, user, "task.accept", "task", task.task_id, {"provider_id": provider.provider_id, "note": payload.note})
+        db.commit()
+        db.refresh(task)
+        await app.state.event_bus.publish(
+            db,
+            "task.accepted",
+            {"task_id": task.task_id, "provider_id": provider.provider_id, "note": payload.note},
+            task.requester_user_id,
+        )
+        return task_response(task)
+
+    @app.post("/tasks/{task_id}/status", response_model=TaskResponse)
+    async def update_task_status(
+        task_id: str,
+        payload: TaskStatusUpdateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("services:write")),
+    ) -> TaskResponse:
+        task = db.get(ServiceTask, task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="task not found")
+        status_value = normalize_task_status(payload.status)
+        if task.status in FINAL_TASK_STATUSES and status_value != task.status:
+            raise HTTPException(status_code=400, detail=f"cannot update task in {task.status} state")
+        provider = db.get(Provider, task.provider_id)
+        if provider and provider.owner_user_id == user.user_id:
+            if status_value not in PROVIDER_WRITABLE_TASK_STATUSES:
+                raise HTTPException(status_code=400, detail=f"provider cannot set task status: {status_value}")
+            event_account_id = task.requester_user_id
+        elif task.requester_user_id == user.user_id:
+            if status_value not in REQUESTER_WRITABLE_TASK_STATUSES:
+                raise HTTPException(status_code=400, detail=f"requester cannot set task status: {status_value}")
+            event_account_id = provider.owner_user_id if provider else None
+        else:
+            raise HTTPException(status_code=403, detail="only requester or provider owner can update this task")
+        task.status = status_value
+        task.updated_at = utc_now()
+        audit(db, user, "task.status_update", "task", task.task_id, {"status": task.status, "note": payload.note})
+        db.commit()
+        db.refresh(task)
+        event_type = "task.status_updated"
+        if status_value == "failed":
+            event_type = "task.failed"
+        elif status_value == "cancelled":
+            event_type = "task.cancelled"
+        await app.state.event_bus.publish(
+            db,
+            event_type,
+            {"task_id": task.task_id, "status": task.status, "note": payload.note},
+            event_account_id,
+        )
+        return task_response(task)
 
     @app.post("/artifacts", response_model=ArtifactResponse, status_code=status.HTTP_201_CREATED)
     async def create_artifact(
@@ -2121,7 +2296,9 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="provider not found")
         ratings = db.scalars(select(Rating).where(Rating.provider_id == provider_id)).all()
         completed_tasks = db.scalars(
-            select(ServiceTask).where(ServiceTask.provider_id == provider_id).where(ServiceTask.status == "completed")
+            select(ServiceTask)
+            .where(ServiceTask.provider_id == provider_id)
+            .where(ServiceTask.status.in_(["verified", "completed"]))
         ).all()
         orders_count = len(db.scalars(select(ServiceOrder).where(ServiceOrder.provider_id == provider_id)).all())
         average_score = sum(rating.score for rating in ratings) / len(ratings) if ratings else None
@@ -2140,24 +2317,148 @@ def create_app() -> FastAPI:
         db: Session = Depends(get_db),
         user: HumanAccount = Depends(scoped_user("services:write")),
     ) -> TaskResponse:
-        task = db.get(ServiceTask, task_id)
-        if not task:
-            raise HTTPException(status_code=404, detail="task not found")
-        provider = db.get(Provider, task.provider_id)
-        if not provider or provider.owner_user_id != user.user_id:
-            raise HTTPException(status_code=403, detail="only provider owner can submit result")
-        task.status = payload.status
+        task, provider = provider_owned_task(db, task_id, user)
+        status_value = normalize_task_status(payload.status)
+        if task.status in {"verified", "rejected", "cancelled"}:
+            raise HTTPException(status_code=400, detail=f"cannot submit result for task in {task.status} state")
+        if status_value not in {"submitted", "completed", "failed", "cancelled"}:
+            raise HTTPException(status_code=400, detail=f"unsupported result status: {payload.status}")
+        artifact_ids = validate_task_artifacts(db, task, payload.artifact_ids)
+        task.status = status_value
         task.result_json = dump_json(payload.result)
-        audit(db, user, "task.result", "task", task.task_id, {"status": task.status})
+        task.updated_at = utc_now()
+        receipt = TaskReceipt(
+            task_id=task.task_id,
+            provider_id=task.provider_id,
+            provider_user_id=user.user_id,
+            provider_agent_id=provider.agent_id,
+            receipt_type="task_result",
+            status=status_value,
+            summary=payload.summary,
+            artifact_ids_json=json.dumps(artifact_ids, sort_keys=True),
+            usage_json=dump_json(payload.usage),
+            result_json=dump_json(payload.result),
+        )
+        db.add(receipt)
+        db.flush()
+        audit(
+            db,
+            user,
+            "task.result",
+            "task",
+            task.task_id,
+            {"status": task.status, "receipt_id": receipt.receipt_id, "artifact_ids": artifact_ids},
+        )
         db.commit()
         db.refresh(task)
+        db.refresh(receipt)
         await app.state.event_bus.publish(
             db,
-            "task.completed",
-            {"task_id": task.task_id, "status": task.status},
+            "task.submitted" if task.status in {"submitted", "completed"} else f"task.{task.status}",
+            {
+                "task_id": task.task_id,
+                "status": task.status,
+                "receipt_id": receipt.receipt_id,
+                "artifact_ids": artifact_ids,
+            },
             task.requester_user_id,
         )
         return task_response(task)
+
+    @app.get("/tasks/{task_id}/receipts", response_model=list[TaskReceiptResponse])
+    def list_task_receipts(
+        task_id: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("services:read")),
+        limit: int = 100,
+    ) -> list[TaskReceiptResponse]:
+        task = visible_task(db, task_id, user)
+        receipts = db.scalars(
+            select(TaskReceipt)
+            .where(TaskReceipt.task_id == task.task_id)
+            .order_by(TaskReceipt.created_at.desc())
+            .limit(min(limit, 200))
+        ).all()
+        return [task_receipt_response(receipt) for receipt in receipts]
+
+    @app.post("/tasks/{task_id}/verify", response_model=VerificationRecordResponse, status_code=status.HTTP_201_CREATED)
+    async def verify_task(
+        task_id: str,
+        payload: VerificationRecordRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("services:write")),
+    ) -> VerificationRecordResponse:
+        task, provider = requester_owned_task(db, task_id, user)
+        status_value = normalize_task_status(payload.status)
+        if status_value not in VERIFICATION_TASK_STATUSES:
+            raise HTTPException(status_code=400, detail="verification status must be verified or rejected")
+        if task.status not in {"submitted", "completed", "verification_running"}:
+            raise HTTPException(status_code=400, detail=f"cannot verify task in {task.status} state")
+        verifier_agent_id = validate_agent_owner(db, user, payload.verifier_agent_id)
+        evidence_artifact_ids = validate_task_artifacts(db, task, payload.evidence_artifact_ids)
+        record = VerificationRecord(
+            task_id=task.task_id,
+            verifier_user_id=user.user_id,
+            verifier_agent_id=verifier_agent_id,
+            verification_type=payload.verification_type,
+            status=status_value,
+            rubric_json=dump_json(payload.rubric),
+            result_json=dump_json(payload.result),
+            evidence_artifact_ids_json=json.dumps(evidence_artifact_ids, sort_keys=True),
+            comment=payload.comment,
+        )
+        db.add(record)
+        task.status = status_value
+        task.updated_at = utc_now()
+        db.flush()
+        audit(
+            db,
+            user,
+            "task.verify" if status_value == "verified" else "task.reject",
+            "task",
+            task.task_id,
+            {"verification_id": record.verification_id, "status": status_value, "evidence_artifact_ids": evidence_artifact_ids},
+        )
+        db.commit()
+        db.refresh(record)
+        await app.state.event_bus.publish(
+            db,
+            "task.verified" if status_value == "verified" else "task.rejected",
+            {
+                "task_id": task.task_id,
+                "verification_id": record.verification_id,
+                "status": status_value,
+                "verification_type": record.verification_type,
+            },
+            provider.owner_user_id if provider else None,
+        )
+        return verification_record_response(record)
+
+    @app.post("/tasks/{task_id}/reject", response_model=VerificationRecordResponse, status_code=status.HTTP_201_CREATED)
+    async def reject_task(
+        task_id: str,
+        payload: VerificationRecordRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("services:write")),
+    ) -> VerificationRecordResponse:
+        payload.status = "rejected"
+        return await verify_task(task_id, payload, db, user)
+
+    @app.get("/tasks/{task_id}/verifications", response_model=list[VerificationRecordResponse])
+    def list_task_verifications(
+        task_id: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("services:read")),
+        limit: int = 100,
+    ) -> list[VerificationRecordResponse]:
+        task = visible_task(db, task_id, user)
+        records = db.scalars(
+            select(VerificationRecord)
+            .where(VerificationRecord.task_id == task.task_id)
+            .order_by(VerificationRecord.created_at.desc())
+            .limit(min(limit, 200))
+        ).all()
+        return [verification_record_response(record) for record in records]
 
     @app.post("/tasks/{task_id}/rating", response_model=RatingResponse, status_code=status.HTTP_201_CREATED)
     async def rate_task(
@@ -2171,6 +2472,8 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="task not found")
         if task.requester_user_id != user.user_id:
             raise HTTPException(status_code=403, detail="only requester can rate this task")
+        if task.status not in {"verified", "completed"}:
+            raise HTTPException(status_code=400, detail="task must be verified before rating")
         rating = Rating(
             task_id=task.task_id,
             reviewer_user_id=user.user_id,

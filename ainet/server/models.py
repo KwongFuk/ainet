@@ -307,6 +307,39 @@ class ServiceTask(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
 
+class TaskReceipt(Base):
+    __tablename__ = "task_receipts"
+
+    receipt_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("rcpt"))
+    task_id: Mapped[str] = mapped_column(ForeignKey("service_tasks.task_id"), index=True)
+    provider_id: Mapped[str] = mapped_column(ForeignKey("providers.provider_id"), index=True)
+    provider_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    provider_agent_id: Mapped[str | None] = mapped_column(ForeignKey("agent_accounts.agent_id"), nullable=True, index=True)
+    receipt_type: Mapped[str] = mapped_column(String(40), default="task_result", index=True)
+    status: Mapped[str] = mapped_column(String(40), default="submitted", index=True)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    artifact_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    usage_json: Mapped[str] = mapped_column(Text, default="{}")
+    result_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+
+class VerificationRecord(Base):
+    __tablename__ = "verification_records"
+
+    verification_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("ver"))
+    task_id: Mapped[str] = mapped_column(ForeignKey("service_tasks.task_id"), index=True)
+    verifier_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    verifier_agent_id: Mapped[str | None] = mapped_column(ForeignKey("agent_accounts.agent_id"), nullable=True, index=True)
+    verification_type: Mapped[str] = mapped_column(String(60), default="human_approval", index=True)
+    status: Mapped[str] = mapped_column(String(40), default="verified", index=True)
+    rubric_json: Mapped[str] = mapped_column(Text, default="{}")
+    result_json: Mapped[str] = mapped_column(Text, default="{}")
+    evidence_artifact_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    comment: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+
 class Artifact(Base):
     __tablename__ = "artifacts"
 

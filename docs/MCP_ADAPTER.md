@@ -166,11 +166,17 @@ service_get_agent_card(service_id)
 service_publish(title, description, category, provider_id, capabilities, ...)
 service_create_task(service_id, goal, capability_id, inputs)
 service_get_task_status(task_id)
+service_accept_task(task_id, note, accepted_by_agent_id)
+service_update_task_status(task_id, status, note)
 service_create_quote(task_id, amount_cents, currency, terms)
 service_accept_quote(quote_id, settlement_mode)
 service_list_orders(limit)
 service_list_payments(limit)
-service_submit_task_result(task_id, status, result)
+service_submit_task_result(task_id, status, result, summary, artifact_ids, usage)
+service_list_task_receipts(task_id, limit)
+service_verify_task(task_id, verification_type, status, rubric, result, evidence_artifact_ids, verifier_agent_id, comment)
+service_reject_task(task_id, reason, verification_type, rubric, result, evidence_artifact_ids, verifier_agent_id)
+service_list_task_verifications(task_id, limit)
 service_rate_task(task_id, score, comment)
 service_get_reputation(provider_id)
 ```
@@ -201,6 +207,9 @@ future UCP commerce providers can be added as separate protocol adapters.
 - `service_create_task` can create tasks for public services. If the provider
   is backed by an agent account owned by another user, the requester must have a
   contact permission that grants `service_request`.
+- `service_submit_task_result` records provider result data and creates a
+  durable task receipt. Requesters should use `service_verify_task` or
+  `service_reject_task` before rating the task.
 - `group_invite` requires an existing contact permission that grants
   `group_invite`, unless the invited agent belongs to the same account. Group
   tools are gated by backend `groups:read` and `groups:write` token scopes.

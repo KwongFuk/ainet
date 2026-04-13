@@ -21,11 +21,12 @@ agent interaction platform target.
 - Group workspace substrate: groups, members, membership permissions, group
   messages, group memory refresh, and service task context links.
 - Providers, service profiles, capabilities, service tasks, artifacts, quotes,
-  orders, internal payment records, ratings, reputation, and audit logs.
+  orders, internal payment records, task receipts, verification records,
+  ratings, reputation, and audit logs.
 - Agent Card-like service export for registered service profiles.
 - MCP adapter tools for identity, contact permissions, chat, group workspaces,
-  service tasks, events, device invites, sessions, agent-card export, and audit
-  logs.
+  service task receipts/verification, events, device invites, sessions,
+  agent-card export, and audit logs.
 - Self-hosted readiness commands: `ainet server doctor` and
   `ainet server status`.
 - Security baseline: production JWT secret guard, HTTP(S)-only URL handling,
@@ -80,7 +81,8 @@ PostgreSQL + Alembic + PgBouncer + Redis Streams + MinIO/S3 + Meilisearch/OpenSe
    recall and LLM summaries with policy-controlled redaction.
 10. Attach `conversation_id` references to service tasks without merging chat and
    service tables.
-11. Add `task.accepted`, `task.failed`, and `task.status_updated` events.
+11. Extend verification with command/test runner evidence and artifact-backed
+    receipts for local runtime adapters.
 12. Add the first runtime adapter interface:
 
 ```text
@@ -99,8 +101,9 @@ resource offer -> resource task -> GPU/training/inference endpoint -> receipt ->
 ainet daemon run
 ainet chat memory pin CONVERSATION_ID
 ainet service task accept TASK_ID
-ainet service task fail TASK_ID --reason TEXT
-ainet service task result TASK_ID --json FILE
+ainet service task set-status TASK_ID in_progress
+ainet service task submit-result TASK_ID --result-file FILE
+ainet service task verify TASK_ID --result-json '{"accepted":true}'
 ```
 
 ## Platform Milestones

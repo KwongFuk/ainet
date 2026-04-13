@@ -355,6 +355,16 @@ class TaskResponse(BaseModel):
     result: dict
 
 
+class TaskAcceptRequest(BaseModel):
+    note: str = Field(default="", max_length=4000)
+    accepted_by_agent_id: str | None = Field(default=None, max_length=40)
+
+
+class TaskStatusUpdateRequest(BaseModel):
+    status: str = Field(max_length=40)
+    note: str = Field(default="", max_length=4000)
+
+
 class ArtifactCreateRequest(BaseModel):
     task_id: str | None = Field(default=None, max_length=40)
     filename: str = Field(min_length=1, max_length=255)
@@ -416,8 +426,50 @@ class OrderResponse(BaseModel):
 
 
 class TaskResultRequest(BaseModel):
-    status: str = Field(default="completed", max_length=40)
+    status: str = Field(default="submitted", max_length=40)
     result: dict = Field(default_factory=dict)
+    summary: str = Field(default="", max_length=12000)
+    artifact_ids: list[str] = Field(default_factory=list)
+    usage: dict = Field(default_factory=dict)
+
+
+class TaskReceiptResponse(BaseModel):
+    receipt_id: str
+    task_id: str
+    provider_id: str
+    provider_user_id: str
+    provider_agent_id: str | None
+    receipt_type: str
+    status: str
+    summary: str
+    artifact_ids: list[str]
+    usage: dict
+    result: dict
+    created_at: str
+
+
+class VerificationRecordRequest(BaseModel):
+    verification_type: str = Field(default="human_approval", max_length=60)
+    status: str = Field(default="verified", max_length=40)
+    rubric: dict = Field(default_factory=dict)
+    result: dict = Field(default_factory=dict)
+    evidence_artifact_ids: list[str] = Field(default_factory=list)
+    verifier_agent_id: str | None = Field(default=None, max_length=40)
+    comment: str = Field(default="", max_length=12000)
+
+
+class VerificationRecordResponse(BaseModel):
+    verification_id: str
+    task_id: str
+    verifier_user_id: str
+    verifier_agent_id: str | None
+    verification_type: str
+    status: str
+    rubric: dict
+    result: dict
+    evidence_artifact_ids: list[str]
+    comment: str
+    created_at: str
 
 
 class RatingCreateRequest(BaseModel):

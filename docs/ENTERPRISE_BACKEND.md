@@ -29,6 +29,8 @@ group membership permissions
 group messages and memory
 group task context links
 service tasks
+task receipts
+verification records
 artifacts
 quotes
 orders
@@ -321,6 +323,13 @@ curl -fsS "http://127.0.0.1:8787/tasks/$TASK_ID" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+Provider-side execution status:
+
+```bash
+ainet service task accept "$TASK_ID"
+ainet service task set-status "$TASK_ID" in_progress
+```
+
 Submit a quote and result:
 
 ```bash
@@ -332,10 +341,29 @@ curl -fsS -X POST "http://127.0.0.1:8787/tasks/$TASK_ID/quote" \
 curl -fsS -X POST "http://127.0.0.1:8787/tasks/$TASK_ID/result" \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"status":"completed","result":{"summary":"looks good"}}'
+  -d '{"status":"submitted","summary":"provider receipt","result":{"summary":"looks good"}}'
 ```
 
-Rate the provider:
+Inspect receipts, verify delivery, then rate the provider:
+
+```bash
+ainet service task receipts "$TASK_ID"
+ainet service task verify "$TASK_ID" \
+  --verification-type checklist \
+  --result-json '{"accepted":true}'
+ainet service task verifications "$TASK_ID"
+```
+
+Or call the backend directly:
+
+```bash
+curl -fsS -X POST "http://127.0.0.1:8787/tasks/$TASK_ID/verify" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"verification_type":"checklist","status":"verified","result":{"accepted":true}}'
+```
+
+After verification, record a rating:
 
 ```bash
 curl -fsS -X POST "http://127.0.0.1:8787/tasks/$TASK_ID/rating" \

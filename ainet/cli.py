@@ -1243,6 +1243,193 @@ def cmd_group_tasks(args: argparse.Namespace, paths: Paths) -> int:
     return 0
 
 
+def read_json_payload(value: str | None, path: str | None, label: str) -> dict[str, Any]:
+    if value and path:
+        raise SystemExit(f"pass either --{label}-json or --{label}-file, not both")
+    raw = "{}"
+    if value:
+        raw = value
+    elif path:
+        raw = Path(path).expanduser().read_text(encoding="utf-8")
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"invalid {label} JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise SystemExit(f"{label} JSON must be an object")
+    return parsed
+
+
+def print_task(task: dict[str, Any]) -> None:
+    capability = f" capability_id={task['capability_id']}" if task.get("capability_id") else ""
+    print(
+        f"{task['task_id']} status={task.get('status')} service_id={task.get('service_id')} "
+        f"provider_id={task.get('provider_id')}{capability}"
+    )
+    if task.get("input"):
+        print(f"  input: {json.dumps(task['input'], sort_keys=True)}")
+    if task.get("result"):
+        print(f"  result: {json.dumps(task['result'], sort_keys=True)}")
+
+
+def print_task_receipt(receipt: dict[str, Any]) -> None:
+    artifacts = ",".join(receipt.get("artifact_ids") or []) or "-"
+    print(
+        f"{receipt['receipt_id']} task={receipt['task_id']} status={receipt.get('status')} "
+        f"type={receipt.get('receipt_type')} artifacts={artifacts} created_at={receipt.get('created_at')}"
+    )
+    if receipt.get("summary"):
+        print(f"  summary: {receipt['summary']}")
+    if receipt.get("usage"):
+        print(f"  usage: {json.dumps(receipt['usage'], sort_keys=True)}")
+
+
+def print_verification(record: dict[str, Any]) -> None:
+    evidence = ",".join(record.get("evidence_artifact_ids") or []) or "-"
+    print(
+        f"{record['verification_id']} task={record['task_id']} status={record.get('status')} "
+        f"type={record.get('verification_type')} evidence={evidence} created_at={record.get('created_at')}"
+    )
+    if record.get("comment"):
+        print(f"  comment: {record['comment']}")
+    if record.get("result"):
+        print(f"  result: {json.dumps(record['result'], sort_keys=True)}")
+
+
+def cmd_service_task_status(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    task = api_json("GET", api_url, f"/tasks/{quote_path(args.task_id)}", token=token)
+    print_task(task)
+    return 0
+
+
+def cmd_service_task_accept(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    task = api_json(
+        "POST",
+        api_url,
+        f"/tasks/{quote_path(args.task_id)}/accept",
+        {"note": args.note or "", "accepted_by_agent_id": args.accepted_by_agent_id},
+        token=token,
+    )
+    print_task(task)
+    return 0
+
+
+def cmd_service_task_set_status(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    task = api_json(
+        "POST",
+        api_url,
+        f"/tasks/{quote_path(args.task_id)}/status",
+        {"status": args.status, "note": args.note or ""},
+        token=token,
+    )
+    print_task(task)
+    return 0
+
+
+def cmd_service_task_submit_result(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    result = read_json_payload(args.result_json, args.result_file, "result")
+    usage = read_json_payload(args.usage_json, args.usage_file, "usage")
+    task = api_json(
+        "POST",
+        api_url,
+        f"/tasks/{quote_path(args.task_id)}/result",
+        {
+            "status": args.status,
+            "result": result,
+            "summary": args.summary or "",
+            "artifact_ids": args.artifact_id or [],
+            "usage": usage,
+        },
+        token=token,
+    )
+    print_task(task)
+    print("receipt: run `ainet service task receipts TASK_ID` to inspect submission receipts")
+    return 0
+
+
+def cmd_service_task_receipts(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    query = urllib.parse.urlencode({"limit": args.limit})
+    receipts = api_json("GET", api_url, f"/tasks/{quote_path(args.task_id)}/receipts?{query}", token=token)
+    if not receipts:
+        print("no task receipts")
+        return 0
+    for receipt in receipts:
+        print_task_receipt(receipt)
+    return 0
+
+
+def cmd_service_task_verify(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    rubric = read_json_payload(args.rubric_json, args.rubric_file, "rubric")
+    result = read_json_payload(args.result_json, args.result_file, "result")
+    record = api_json(
+        "POST",
+        api_url,
+        f"/tasks/{quote_path(args.task_id)}/verify",
+        {
+            "verification_type": args.verification_type,
+            "status": args.status,
+            "rubric": rubric,
+            "result": result,
+            "evidence_artifact_ids": args.evidence_artifact_id or [],
+            "verifier_agent_id": args.verifier_agent_id,
+            "comment": args.comment or "",
+        },
+        token=token,
+    )
+    print_verification(record)
+    return 0
+
+
+def cmd_service_task_reject(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    rubric = read_json_payload(args.rubric_json, args.rubric_file, "rubric")
+    result = read_json_payload(args.result_json, args.result_file, "result")
+    if args.reason:
+        result.setdefault("reason", args.reason)
+    record = api_json(
+        "POST",
+        api_url,
+        f"/tasks/{quote_path(args.task_id)}/reject",
+        {
+            "verification_type": args.verification_type,
+            "rubric": rubric,
+            "result": result,
+            "evidence_artifact_ids": args.evidence_artifact_id or [],
+            "verifier_agent_id": args.verifier_agent_id,
+            "comment": args.comment or args.reason or "",
+        },
+        token=token,
+    )
+    print_verification(record)
+    return 0
+
+
+def cmd_service_task_verifications(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    query = urllib.parse.urlencode({"limit": args.limit})
+    records = api_json("GET", api_url, f"/tasks/{quote_path(args.task_id)}/verifications?{query}", token=token)
+    if not records:
+        print("no task verifications")
+        return 0
+    for record in records:
+        print_verification(record)
+    return 0
+
+
 def get_profile(config: dict[str, Any], profile_name: str) -> dict[str, Any]:
     profile = config["profiles"].get(profile_name)
     if not profile:
@@ -1976,6 +2163,78 @@ def build_parser() -> argparse.ArgumentParser:
     group_task_list.add_argument("group", help="group id or handle")
     group_task_list.add_argument("--limit", type=int, default=100, help="maximum result count")
     group_task_list.set_defaults(func=cmd_group_tasks)
+
+    service = sub.add_parser("service", help="backend service task operations")
+    service_sub = service.add_subparsers(dest="service_command", required=True)
+    service_task = service_sub.add_parser("task", help="verifiable service task lifecycle")
+    service_task_sub = service_task.add_subparsers(dest="service_task_command", required=True)
+
+    service_task_status = service_task_sub.add_parser("status", help="show task status and payloads")
+    service_task_status.add_argument("task_id", help="task id")
+    service_task_status.set_defaults(func=cmd_service_task_status)
+
+    service_task_accept = service_task_sub.add_parser("accept", help="provider accepts a service task")
+    service_task_accept.add_argument("task_id", help="task id")
+    service_task_accept.add_argument("--note", help="optional acceptance note")
+    service_task_accept.add_argument("--accepted-by-agent-id", help="owned provider agent id")
+    service_task_accept.set_defaults(func=cmd_service_task_accept)
+
+    service_task_set_status = service_task_sub.add_parser("set-status", help="update task execution status")
+    service_task_set_status.add_argument("task_id", help="task id")
+    service_task_set_status.add_argument(
+        "status",
+        choices=["accepted", "in_progress", "submitted", "verification_running", "failed", "cancelled", "completed"],
+        help="new task status",
+    )
+    service_task_set_status.add_argument("--note", help="optional status note")
+    service_task_set_status.set_defaults(func=cmd_service_task_set_status)
+
+    service_task_submit = service_task_sub.add_parser("submit-result", help="provider submits task result and creates a receipt")
+    service_task_submit.add_argument("task_id", help="task id")
+    service_task_submit.add_argument("--status", default="submitted", choices=["submitted", "completed", "failed", "cancelled"])
+    service_task_submit.add_argument("--summary", help="receipt summary")
+    service_task_submit.add_argument("--artifact-id", action="append", help="artifact id included in the receipt")
+    service_task_submit.add_argument("--result-json", help="result JSON object")
+    service_task_submit.add_argument("--result-file", help="read result JSON object from file")
+    service_task_submit.add_argument("--usage-json", help="usage JSON object")
+    service_task_submit.add_argument("--usage-file", help="read usage JSON object from file")
+    service_task_submit.set_defaults(func=cmd_service_task_submit_result)
+
+    service_task_receipts = service_task_sub.add_parser("receipts", help="list task receipts")
+    service_task_receipts.add_argument("task_id", help="task id")
+    service_task_receipts.add_argument("--limit", type=int, default=100, help="maximum result count")
+    service_task_receipts.set_defaults(func=cmd_service_task_receipts)
+
+    service_task_verify = service_task_sub.add_parser("verify", help="requester verifies or rejects a submitted task")
+    service_task_verify.add_argument("task_id", help="task id")
+    service_task_verify.add_argument("--verification-type", default="human_approval", help="human_approval, checklist, command, peer_agent")
+    service_task_verify.add_argument("--status", default="verified", choices=["verified", "rejected"], help="verification outcome")
+    service_task_verify.add_argument("--rubric-json", help="rubric/check JSON object")
+    service_task_verify.add_argument("--rubric-file", help="read rubric/check JSON object from file")
+    service_task_verify.add_argument("--result-json", help="verification result JSON object")
+    service_task_verify.add_argument("--result-file", help="read verification result JSON object from file")
+    service_task_verify.add_argument("--evidence-artifact-id", action="append", help="evidence artifact id")
+    service_task_verify.add_argument("--verifier-agent-id", help="owned verifier agent id")
+    service_task_verify.add_argument("--comment", help="verification comment")
+    service_task_verify.set_defaults(func=cmd_service_task_verify)
+
+    service_task_reject = service_task_sub.add_parser("reject", help="requester rejects a submitted task")
+    service_task_reject.add_argument("task_id", help="task id")
+    service_task_reject.add_argument("--reason", help="rejection reason")
+    service_task_reject.add_argument("--verification-type", default="human_approval", help="human_approval, checklist, command, peer_agent")
+    service_task_reject.add_argument("--rubric-json", help="rubric/check JSON object")
+    service_task_reject.add_argument("--rubric-file", help="read rubric/check JSON object from file")
+    service_task_reject.add_argument("--result-json", help="verification result JSON object")
+    service_task_reject.add_argument("--result-file", help="read verification result JSON object from file")
+    service_task_reject.add_argument("--evidence-artifact-id", action="append", help="evidence artifact id")
+    service_task_reject.add_argument("--verifier-agent-id", help="owned verifier agent id")
+    service_task_reject.add_argument("--comment", help="verification comment")
+    service_task_reject.set_defaults(func=cmd_service_task_reject)
+
+    service_task_verifications = service_task_sub.add_parser("verifications", help="list task verification records")
+    service_task_verifications.add_argument("task_id", help="task id")
+    service_task_verifications.add_argument("--limit", type=int, default=100, help="maximum result count")
+    service_task_verifications.set_defaults(func=cmd_service_task_verifications)
 
     install = sub.add_parser("install", help="install a local agent profile")
     install.add_argument("--profile", required=True, help="local profile name")

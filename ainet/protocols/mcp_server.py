@@ -506,6 +506,28 @@ def get_task_status(task_id: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+def accept_task(task_id: str, note: str = "", accepted_by_agent_id: str | None = None) -> dict[str, Any]:
+    """Provider side: accept a service task before executing it."""
+    task = client().request(
+        "POST",
+        f"/tasks/{urllib.parse.quote(task_id)}/accept",
+        {"note": note, "accepted_by_agent_id": accepted_by_agent_id},
+    )
+    return {"task": task}
+
+
+@mcp.tool()
+def update_task_status(task_id: str, status: str, note: str = "") -> dict[str, Any]:
+    """Update execution status for a visible service task."""
+    task = client().request(
+        "POST",
+        f"/tasks/{urllib.parse.quote(task_id)}/status",
+        {"status": status, "note": note},
+    )
+    return {"task": task}
+
+
+@mcp.tool()
 def create_quote(
     task_id: str,
     amount_cents: int,
@@ -554,19 +576,111 @@ def get_reputation(provider_id: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def submit_task_result(task_id: str, status: str = "completed", result: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Submit a provider result for a service task."""
+def submit_task_result(
+    task_id: str,
+    status: str = "submitted",
+    result: dict[str, Any] | None = None,
+    summary: str = "",
+    artifact_ids: list[str] | None = None,
+    usage: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Provider side: submit a task result and create a durable receipt."""
     task = client().request(
         "POST",
         f"/tasks/{urllib.parse.quote(task_id)}/result",
-        {"status": status, "result": result or {}},
+        {
+            "status": status,
+            "result": result or {},
+            "summary": summary,
+            "artifact_ids": artifact_ids or [],
+            "usage": usage or {},
+        },
     )
     return {"task": task}
 
 
 @mcp.tool()
+def list_task_receipts(task_id: str, limit: int = 100) -> dict[str, Any]:
+    """List durable receipts submitted for a service task."""
+    receipts = client().request(
+        "GET",
+        f"/tasks/{urllib.parse.quote(task_id)}/receipts",
+        query={"limit": max(1, min(limit, 200))},
+    )
+    return {"receipts": receipts}
+
+
+@mcp.tool()
+def verify_task(
+    task_id: str,
+    verification_type: str = "human_approval",
+    status: str = "verified",
+    rubric: dict[str, Any] | None = None,
+    result: dict[str, Any] | None = None,
+    evidence_artifact_ids: list[str] | None = None,
+    verifier_agent_id: str | None = None,
+    comment: str = "",
+) -> dict[str, Any]:
+    """Requester side: verify or reject a submitted task with structured evidence."""
+    verification = client().request(
+        "POST",
+        f"/tasks/{urllib.parse.quote(task_id)}/verify",
+        {
+            "verification_type": verification_type,
+            "status": status,
+            "rubric": rubric or {},
+            "result": result or {},
+            "evidence_artifact_ids": evidence_artifact_ids or [],
+            "verifier_agent_id": verifier_agent_id,
+            "comment": comment,
+        },
+    )
+    return {"verification": verification}
+
+
+@mcp.tool()
+def reject_task(
+    task_id: str,
+    reason: str,
+    verification_type: str = "human_approval",
+    rubric: dict[str, Any] | None = None,
+    result: dict[str, Any] | None = None,
+    evidence_artifact_ids: list[str] | None = None,
+    verifier_agent_id: str | None = None,
+) -> dict[str, Any]:
+    """Requester side: reject a submitted task with structured evidence."""
+    payload = dict(result or {})
+    if reason:
+        payload.setdefault("reason", reason)
+    verification = client().request(
+        "POST",
+        f"/tasks/{urllib.parse.quote(task_id)}/reject",
+        {
+            "verification_type": verification_type,
+            "rubric": rubric or {},
+            "result": payload,
+            "evidence_artifact_ids": evidence_artifact_ids or [],
+            "verifier_agent_id": verifier_agent_id,
+            "comment": reason,
+        },
+    )
+    return {"verification": verification}
+
+
+@mcp.tool()
+def list_task_verifications(task_id: str, limit: int = 100) -> dict[str, Any]:
+    """List verification records for a service task."""
+    verifications = client().request(
+        "GET",
+        f"/tasks/{urllib.parse.quote(task_id)}/verifications",
+        query={"limit": max(1, min(limit, 200))},
+    )
+    return {"verifications": verifications}
+
+
+@mcp.tool()
 def rate_task(task_id: str, score: int, comment: str = "") -> dict[str, Any]:
-    """Rate a completed service task and update provider reputation inputs."""
+    """Rate a verified service task and update provider reputation inputs."""
     rating = client().request(
         "POST",
         f"/tasks/{urllib.parse.quote(task_id)}/rating",
@@ -750,6 +864,18 @@ def service_get_task_status(task_id: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+def service_accept_task(task_id: str, note: str = "", accepted_by_agent_id: str | None = None) -> dict[str, Any]:
+    """Service layer: provider accepts a task."""
+    return accept_task(task_id, note, accepted_by_agent_id)
+
+
+@mcp.tool()
+def service_update_task_status(task_id: str, status: str, note: str = "") -> dict[str, Any]:
+    """Service layer: update task execution status."""
+    return update_task_status(task_id, status, note)
+
+
+@mcp.tool()
 def service_create_quote(
     task_id: str,
     amount_cents: int,
@@ -779,9 +905,57 @@ def service_list_payments(limit: int = 100) -> dict[str, Any]:
 
 
 @mcp.tool()
-def service_submit_task_result(task_id: str, status: str = "completed", result: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Service layer: submit provider task result."""
-    return submit_task_result(task_id, status, result)
+def service_submit_task_result(
+    task_id: str,
+    status: str = "submitted",
+    result: dict[str, Any] | None = None,
+    summary: str = "",
+    artifact_ids: list[str] | None = None,
+    usage: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Service layer: submit provider task result and receipt data."""
+    return submit_task_result(task_id, status, result, summary, artifact_ids, usage)
+
+
+@mcp.tool()
+def service_list_task_receipts(task_id: str, limit: int = 100) -> dict[str, Any]:
+    """Service layer: list task receipts."""
+    return list_task_receipts(task_id, limit)
+
+
+@mcp.tool()
+def service_verify_task(
+    task_id: str,
+    verification_type: str = "human_approval",
+    status: str = "verified",
+    rubric: dict[str, Any] | None = None,
+    result: dict[str, Any] | None = None,
+    evidence_artifact_ids: list[str] | None = None,
+    verifier_agent_id: str | None = None,
+    comment: str = "",
+) -> dict[str, Any]:
+    """Service layer: verify or reject a submitted task."""
+    return verify_task(task_id, verification_type, status, rubric, result, evidence_artifact_ids, verifier_agent_id, comment)
+
+
+@mcp.tool()
+def service_reject_task(
+    task_id: str,
+    reason: str,
+    verification_type: str = "human_approval",
+    rubric: dict[str, Any] | None = None,
+    result: dict[str, Any] | None = None,
+    evidence_artifact_ids: list[str] | None = None,
+    verifier_agent_id: str | None = None,
+) -> dict[str, Any]:
+    """Service layer: reject a submitted task."""
+    return reject_task(task_id, reason, verification_type, rubric, result, evidence_artifact_ids, verifier_agent_id)
+
+
+@mcp.tool()
+def service_list_task_verifications(task_id: str, limit: int = 100) -> dict[str, Any]:
+    """Service layer: list task verification records."""
+    return list_task_verifications(task_id, limit)
 
 
 @mcp.tool()
