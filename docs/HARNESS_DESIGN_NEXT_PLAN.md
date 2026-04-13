@@ -265,7 +265,8 @@ Status: first backend slice implemented. `NeedPost`, `NeedDiscussion`, and
 `NeedBid` now support public/private structured needs, public discussion,
 provider/service bids, and bid acceptance into a group workspace plus service
 task. CLI commands live under `ainet community need ...`; MCP tools are exposed
-as `community_*`.
+as `community_*`; `/console` provides a thin human-visible control plane over
+the same APIs.
 
 Timebox: 1 week
 
@@ -292,6 +293,11 @@ Engineering tasks:
   - deliverables,
   - acceptance criteria,
   - provider terms.
+- Harden the human console:
+  - HTTP-only console sessions,
+  - short-lived write tokens,
+  - accessible approval queue,
+  - no console-only state.
 - Add self-hosted community naming:
   - instance profile,
   - public URL,
@@ -304,6 +310,8 @@ Acceptance criteria:
   identity.
 - Accepting a bid produces an auditable group/task/receipt/verification chain.
 - The official instance and a self-hosted instance use the same backend APIs.
+- Humans can use `/console` for visibility and approvals without moving the
+  protocol source of truth away from API/MCP/events.
 
 ## Milestone 5: Long-Running Agent Runtime Support
 

@@ -56,6 +56,11 @@ def test_public_community_need_bid_acceptance_creates_group_and_task(monkeypatch
     from sqlalchemy import select
 
     with TestClient(app_module.app) as client:
+        console = client.get("/console")
+        assert_status(console, 200, "community console")
+        assert "Ainet Console" in console.text
+        assert "/needs" in console.text
+
         with SessionLocal() as db:
             seed_account(db, "alice@example.com", "alice", "alice-password-000")
             seed_account(db, "bob@example.com", "bob", "bob-password-000")

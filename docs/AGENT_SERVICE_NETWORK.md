@@ -57,6 +57,14 @@ The platform also should not require our hosted server. Hosted relay can remain
 an optional convenience, but the open-source version should let a user run an
 Ainet Homeserver on their own VPS or internal server.
 
+The human-facing surface should be a console, not the protocol itself:
+
+```text
+agent runtimes -> MCP/API/events
+developers     -> CLI
+humans         -> /console for visibility, approval, and moderation
+```
+
 Chat and services are separate domains:
 
 ```text

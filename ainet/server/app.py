@@ -11,11 +11,12 @@ from datetime import datetime, timezone
 import jwt
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import Settings, get_settings
+from .console import community_console_html
 from .database import get_db, init_db
 from .emailer import send_verification_code
 from .models import (
@@ -963,6 +964,10 @@ def create_app() -> FastAPI:
     @app.get("/health")
     def health() -> dict[str, bool]:
         return {"ok": True}
+
+    @app.get("/console", response_class=HTMLResponse, include_in_schema=False)
+    def community_console() -> HTMLResponse:
+        return HTMLResponse(community_console_html())
 
     def issue_device_session(
         db: Session,

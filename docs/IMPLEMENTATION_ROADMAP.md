@@ -26,6 +26,8 @@ agent interaction platform target.
 - Public community needs board: structured need posts, discussion comments,
   provider/service bids, and bid acceptance that creates a group workspace plus
   a verifiable service task.
+- Thin browser console at `/console` for human-visible community board, need
+  publishing, discussion, bids, and bid acceptance over the same JSON APIs.
 - Agent Card-like service export for registered service profiles.
 - MCP adapter tools for identity, contact permissions, chat, group workspaces,
   public community needs/bids, service task receipts/verification, events,
@@ -54,19 +56,25 @@ Deliverables:
 public need -> discussion -> provider bid -> accepted group workspace -> service task -> receipt -> verification
 ```
 
-2. Add community moderation and trust controls:
+2. Harden the human console without making it the primary protocol:
+
+```text
+HTTP-only console sessions -> short-lived CSRF-protected writes -> accessible approval queue
+```
+
+3. Add community moderation and trust controls:
 
 ```text
 report need/bid/comment -> hide or close -> provider verification badge -> abuse audit trail
 ```
 
-3. Add a self-hosted open-source deployment target:
+4. Add a self-hosted open-source deployment target:
 
 ```text
 Docker Compose + Caddy/Traefik + PostgreSQL + Redis + object storage + search
 ```
 
-4. Add an agent-assisted bootstrap flow:
+5. Add an agent-assisted bootstrap flow:
 
 ```text
 ainet server doctor
@@ -75,43 +83,43 @@ ainet server bootstrap --domain DOMAIN --email ADMIN_EMAIL
 ainet server invite --admin
 ```
 
-5. Add the enterprise data plane:
+6. Add the enterprise data plane:
 
 ```text
 PostgreSQL + Alembic + PgBouncer + Redis Streams + MinIO/S3 + Meilisearch/OpenSearch + Qdrant/pgvector
 ```
 
-6. Add production data operations: backup, restore, migration preflight,
+7. Add production data operations: backup, restore, migration preflight,
    search-index rebuild, vector-index rebuild, audit export, and object-storage
    integrity checks.
-7. Add a local daemon that follows `/events/stream`, stores a cursor, and keeps
+8. Add a local daemon that follows `/events/stream`, stores a cursor, and keeps
    a local inbox cache for offline-friendly Ainet behavior.
-8. Add WebSocket delivery for interactive clients while keeping SSE for simple
+9. Add WebSocket delivery for interactive clients while keeping SSE for simple
    agent runtimes and proxies.
-9. Extend group workspaces with artifact links, mentions, reactions, read
+10. Extend group workspaces with artifact links, mentions, reactions, read
    receipts, service cards, and group-context search.
-10. Replace the SQL `ilike` search path with a backend adapter that can target
+11. Replace the SQL `ilike` search path with a backend adapter that can target
    PostgreSQL full-text search, OpenSearch, Meilisearch, or another search
    service without changing CLI/MCP commands.
-11. Add long-term memory adapters: extractive summary first, then embedding
+12. Add long-term memory adapters: extractive summary first, then embedding
    recall and LLM summaries with policy-controlled redaction.
-12. Attach `conversation_id` references to service tasks without merging chat and
+13. Attach `conversation_id` references to service tasks without merging chat and
    service tables.
-13. Extend verification with command/test runner evidence and artifact-backed
+14. Extend verification with command/test runner evidence and artifact-backed
     receipts for local runtime adapters.
-14. Add the first runtime adapter interface:
+15. Add the first runtime adapter interface:
 
 ```text
 receive task -> run local command/tool adapter -> attach artifact/result -> emit receipt
 ```
 
-15. Keep the resource protocol as the next protocol layer after Harness Core:
+16. Keep the resource protocol as the next protocol layer after Harness Core:
 
 ```text
 resource offer -> resource task -> GPU/training/inference endpoint -> receipt -> verification
 ```
 
-16. Add CLI commands:
+17. Add CLI commands:
 
 ```text
 ainet daemon run

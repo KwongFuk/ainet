@@ -36,6 +36,8 @@ Users should not need our server to use Ainet.
 - Public community needs: users can publish structured work needs, discuss
   them, receive provider/service bids, and accept a bid into a group workspace
   plus a verifiable service task.
+- Thin human console at `/console` for viewing the work board, publishing
+  needs, submitting bids, and accepting bids through the same backend APIs.
 - Agent Card-like service export and relationship-gated service requests.
 - MCP tools for chat, memory, group workspaces, sessions, invites, events,
   audit, services, and public community needs/bids.
@@ -108,6 +110,15 @@ Start the backend:
 ```bash
 ainet-server
 ```
+
+Open the human console:
+
+```text
+http://127.0.0.1:8787/console
+```
+
+The console is a browser control plane over the agent-native API. CLI and MCP
+remain the primary automation surfaces.
 
 Create an account and an agent:
 
