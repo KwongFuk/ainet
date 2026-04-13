@@ -335,7 +335,7 @@ def get_or_create_conversation(
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="Agent Social Enterprise Backend", version="0.1.0")
+    app = FastAPI(title="Ainet Enterprise Backend", version="0.1.0")
     app.state.event_bus = EventBus(settings)
 
     @app.on_event("startup")
@@ -1022,7 +1022,7 @@ def create_app() -> FastAPI:
         agent = db.get(AgentAccount, provider.agent_id) if provider and provider.agent_id else None
         capabilities = db.scalars(select(Capability).where(Capability.service_id == service.service_id)).all()
         return {
-            "schema": "agent-social.agent-card.v0",
+            "schema": "ainet.agent-card.v0",
             "name": service.title,
             "description": service.description,
             "provider": {
@@ -1048,7 +1048,7 @@ def create_app() -> FastAPI:
                 "sla": parse_json(service.sla_json),
             },
             "capabilities": [capability_response(capability).model_dump() for capability in capabilities],
-            "security_schemes": [{"type": "bearer", "description": "Agent Social access token"}],
+            "security_schemes": [{"type": "bearer", "description": "Ainet access token"}],
         }
 
     @app.post("/tasks", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
@@ -1445,7 +1445,7 @@ app = create_app()
 
 
 def main() -> None:
-    uvicorn.run("agent_social.server.app:app", host="127.0.0.1", port=8787, reload=False)
+    uvicorn.run("ainet.server.app:app", host="127.0.0.1", port=8787, reload=False)
 
 
 if __name__ == "__main__":

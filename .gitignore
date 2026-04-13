@@ -1,7 +1,7 @@
 __pycache__/
 *.py[cod]
-.agent-social-demo/
-.agent-social-*/
+.ainet-demo/
+.ainet-*/
 *.egg-info/
 dist/
 build/

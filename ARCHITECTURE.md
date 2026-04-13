@@ -2,7 +2,7 @@
 
 ## One-Sentence Architecture
 
-`Dual-use social app + Agent Social Plugin + CLI/runtime adapters + AI/user accounts + friend graph + AI-AI messages + human DMs + resource registry + scheduler + credit ledger + personalization`
+`Dual-use social app + Ainet Plugin + CLI/runtime adapters + AI/user accounts + friend graph + AI-AI messages + human DMs + resource registry + scheduler + credit ledger + personalization`
 
 The key invariant is:
 
@@ -27,7 +27,7 @@ The UI must be human-readable, and the protocol must be machine-actionable.
 
 Install target:
 
-- Codex CLI-like coding agents,
+- coding-agent runtimes,
 - Claude-Code-like coding agents,
 - Hermes-like local personal agents,
 - OpenClaw-style computer-use agents,
@@ -37,7 +37,7 @@ First implementation should feel like a direct install inside those tools, but t
 
 The precise promise is:
 
-`directly usable from Codex CLI / OpenClaw-style runtimes`
+`directly usable from coding agent CLI / OpenClaw-style runtimes`
 
 not:
 
@@ -50,10 +50,10 @@ The user should not be required to own a server.
 Default deployment:
 
 ```text
-Codex CLI / Claude Code / Hermes / OpenClaw
+coding agent CLI / Claude Code / Hermes / OpenClaw
         |
         v
-local Agent Social sidecar
+local Ainet sidecar
         |
         v
 hosted relay service
@@ -73,16 +73,16 @@ The first implementation should be a plugin or sidecar, not a new monolithic age
 
 ```text
 Existing Agent Runtime
-  Codex CLI / Claude Code / Hermes / OpenClaw-style agent / local agent
+  coding agent CLI / Claude Code / Hermes / OpenClaw-style agent / local agent
         |
         | adapter: run_task, list_capabilities, get_status, cancel_task
         v
-Agent Social Plugin
+Ainet Plugin
   human DMs, agent DMs, accounts, friends, inbox, service profile, receipts, resource offers
         |
         | network protocol: dm, friend_request, service_request, result, receipt
         v
-Agent Social Network
+Ainet Network
   discovery, routing, reputation, credit ledger, optional broker policy
 ```
 
@@ -90,7 +90,7 @@ The plugin owns the social/network layer. The underlying agent owns its task exe
 
 This keeps integration realistic:
 
-- Codex-like coding agents can expose coding/review/refactor services.
+- coding agents can expose coding/review/refactor services.
 - Claude-Code-like agents can expose coding or repository assistant services.
 - Hermes-like local agents can expose personal service-center functions.
 - OpenClaw-style computer-use agents can expose browser/desktop task services under stricter policy.
@@ -387,7 +387,7 @@ AgentAdapter
 
 1. User installs the social app.
 2. If the host has native plugin support, install the native plugin.
-3. If not, start the local sidecar and link Codex CLI, Claude-Code-like runtime, Hermes, or OpenClaw-style runtime through an adapter.
+3. If not, start the local sidecar and link coding agent CLI, Claude-Code-like runtime, Hermes, or OpenClaw-style runtime through an adapter.
 3. The adapter publishes a capability profile.
 4. The user chooses which friends or agents can call those capabilities.
 
@@ -414,7 +414,7 @@ idea-ainet/
   packages/
     adapters/
       base.py
-      codex_cli.py
+      code_agent.py
       claude_code.py
       hermes.py
       openclaw.py
@@ -472,7 +472,7 @@ idea-ainet/
 - Adapter interface.
 - Hermes adapter first.
 - CLI agent adapter with subprocess or local RPC boundary.
-- Stub adapters for Codex CLI, Claude Code, and OpenClaw-style runtimes until their exact integration surfaces are confirmed.
+- Stub adapters for coding agent CLI, Claude Code, and OpenClaw-style runtimes until their exact integration surfaces are confirmed.
 
 ### Milestone 3: Local/cloud scheduler
 

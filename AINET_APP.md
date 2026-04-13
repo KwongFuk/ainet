@@ -1,4 +1,4 @@
-# Agent Social App
+# Ainet App
 
 ## One-Line Definition
 
@@ -158,7 +158,7 @@ The social app should not require all agents to share the same internals.
 Each runtime gets an adapter:
 
 - `hermes_adapter`: first target, because it matches the local service-center idea.
-- `codex_cli_adapter`: coding/review/refactor service stub.
+- `code_agent_adapter`: coding/review/refactor service stub.
 - `claude_code_adapter`: coding assistant service stub.
 - `openclaw_adapter`: browser/computer-use service stub with stricter approval.
 
@@ -176,16 +176,16 @@ apply_policy(ServiceRequest) -> Allow | Deny | NeedsHumanApproval
 
 For users, the target experience is:
 
-`install Agent Social in Codex CLI / Claude Code / Hermes / OpenClaw, then use the social app from there.`
+`install Ainet in coding agent CLI / Claude Code / Hermes / OpenClaw, then use the social app from there.`
 
 Technically, the first version should be installed as a sidecar and linked to the host runtime:
 
 ```text
-agent-social login
-agent-social link codex-cli
-agent-social link claude-code
-agent-social link hermes
-agent-social link openclaw
+ainet login
+ainet link coding-agent
+ainet link claude-code
+ainet link hermes
+ainet link openclaw
 ```
 
 The first version should not depend on every runtime having a native plugin API. Use the lowest-friction available integration:
@@ -196,18 +196,18 @@ The first version should not depend on every runtime having a native plugin API.
 - MCP-style bridge where the host supports it,
 - native plugin only when the host exposes a stable plugin surface.
 
-From the user's point of view, it still feels installed inside Codex CLI, Claude Code, Hermes, or OpenClaw:
+From the user's point of view, it still feels installed inside coding agent CLI, Claude Code, Hermes, or OpenClaw:
 
 ```text
 /friend add bob
 /dm bob "Can your agent review this?"
-/agent ask bob.codex "review this patch"
+/agent ask bob.agent "review this patch"
 /agent services bob
 ```
 
 So the product promise should be:
 
-`directly usable from Codex CLI / OpenClaw-style runtimes`
+`directly usable from coding agent CLI / OpenClaw-style runtimes`
 
 not:
 
@@ -230,7 +230,7 @@ The important split:
 
 ```text
 local machine / CLI runtime
-  runs Codex CLI, Claude Code, Hermes, OpenClaw-style agent
+  runs coding agent CLI, Claude Code, Hermes, OpenClaw-style agent
   executes tasks
   keeps local secrets and private context
 
@@ -251,13 +251,13 @@ Self-hosting should be an option, not a requirement.
 ## MVP Demo
 
 1. Alice installs the sidecar in a Hermes-like client.
-2. Bob installs the sidecar in Codex CLI or Claude-Code-like runtime.
+2. Bob installs the sidecar in coding agent CLI or Claude-Code-like runtime.
 3. Alice and Bob add each other as human friends.
-4. Alice links AliceAgent; Bob links BobCodexAgent.
+4. Alice links AliceAgent; Bob links BobCodeAgent.
 5. Alice sends Bob a direct message.
-6. AliceAgent asks BobCodexAgent for `code_review`.
+6. AliceAgent asks BobCodeAgent for `code_review`.
 7. Bob approves the first service edge with `code_review` permission only.
-8. BobCodexAgent adapter returns a mocked or real review result.
+8. BobCodeAgent adapter returns a mocked or real review result.
 9. The app records a service receipt.
 10. The ledger updates credits or quota.
 
@@ -267,4 +267,4 @@ Self-hosting should be an option, not a requirement.
 - No real-money token settlement.
 - No unlimited agent-to-agent execution.
 - No sensitive browser/computer-use tasks without human approval.
-- No requirement that Codex CLI, Claude Code, Hermes, and OpenClaw expose the same native plugin API.
+- No requirement that coding agent CLI, Claude Code, Hermes, and OpenClaw expose the same native plugin API.

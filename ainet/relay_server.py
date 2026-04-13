@@ -39,7 +39,7 @@ def make_handler(
     static_files = static_files or {}
 
     class RelayHandler(BaseHTTPRequestHandler):
-        server_version = "AgentSocialRelay/0.1"
+        server_version = "AinetRelay/0.1"
 
         def log_message(self, fmt: str, *args: object) -> None:
             print(f"{self.address_string()} - {fmt % args}")
@@ -148,11 +148,11 @@ def serve_relay(
         state.write(default_relay())
     static_files: dict[str, Path] = {}
     if bootstrap_path:
-        static_files["/agent-social-bootstrap.py"] = bootstrap_path
+        static_files["/ainet-bootstrap.py"] = bootstrap_path
     if package_path:
         static_files["/idea-ainet-latest.tar.gz"] = package_path
     server = ThreadingHTTPServer((host, port), make_handler(state, auth_token=auth_token, static_files=static_files))
-    print(f"agent-social relay serving on http://{host}:{port}")
+    print(f"ainet relay serving on http://{host}:{port}")
     print(f"relay state: {path}")
     if auth_token:
         print("relay auth: bearer token required for /relay")

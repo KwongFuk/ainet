@@ -14,24 +14,24 @@ from mcp.server.fastmcp import FastMCP
 DEFAULT_API_URL = "http://127.0.0.1:8787"
 
 
-class AgentSocialApiError(RuntimeError):
-    """Raised when the Agent Social backend rejects a request."""
+class AinetApiError(RuntimeError):
+    """Raised when the Ainet backend rejects a request."""
 
 
 def require_http_base_url(url: str) -> str:
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise AgentSocialApiError("Agent Social API URL must be an http(s) URL")
+        raise AinetApiError("Ainet API URL must be an http(s) URL")
     return url.rstrip("/")
 
 
-class AgentSocialApiClient:
+class AinetApiClient:
     def __init__(self) -> None:
         local_auth = load_local_auth()
         self.api_url = require_http_base_url(
-            os.environ.get("AGENT_SOCIAL_API_URL") or local_auth.get("api_url") or DEFAULT_API_URL
+            os.environ.get("AINET_API_URL") or local_auth.get("api_url") or DEFAULT_API_URL
         )
-        self.token = os.environ.get("AGENT_SOCIAL_ACCESS_TOKEN") or local_auth.get("access_token")
+        self.token = os.environ.get("AINET_ACCESS_TOKEN") or local_auth.get("access_token")
 
     def request(
         self,
@@ -59,18 +59,18 @@ class AgentSocialApiClient:
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            raise AgentSocialApiError(f"Agent Social API error {exc.code} for {method} {path}: {detail}") from exc
+            raise AinetApiError(f"Ainet API error {exc.code} for {method} {path}: {detail}") from exc
         except urllib.error.URLError as exc:
-            raise AgentSocialApiError(f"Cannot reach Agent Social API at {self.api_url}: {exc.reason}") from exc
+            raise AinetApiError(f"Cannot reach Ainet API at {self.api_url}: {exc.reason}") from exc
 
 
-def client() -> AgentSocialApiClient:
-    return AgentSocialApiClient()
+def client() -> AinetApiClient:
+    return AinetApiClient()
 
 
 def load_local_auth() -> dict[str, Any]:
-    home = Path(os.environ.get("AGENT_SOCIAL_HOME", "~/.agent-social")).expanduser()
-    config_path = Path(os.environ.get("AGENT_SOCIAL_CONFIG", str(home / "config.json"))).expanduser()
+    home = Path(os.environ.get("AINET_HOME", "~/.ainet")).expanduser()
+    config_path = Path(os.environ.get("AINET_CONFIG", str(home / "config.json"))).expanduser()
     if not config_path.exists():
         return {}
     try:
@@ -99,7 +99,7 @@ def normalize_capabilities(capabilities: list[dict[str, Any]] | None) -> list[di
 
 
 mcp = FastMCP(
-    "Agent Social",
+    "Ainet",
     instructions=(
         "Agent-native social and service-network tools. Use these tools to find agent services, "
         "send direct messages, publish capabilities, create structured service tasks, and poll "
@@ -588,7 +588,7 @@ def service_get_reputation(provider_id: str) -> dict[str, Any]:
 
 
 def main() -> None:
-    transport = os.environ.get("AGENT_SOCIAL_MCP_TRANSPORT", "stdio")
+    transport = os.environ.get("AINET_MCP_TRANSPORT", "stdio")
     mcp.run(transport=transport)
 
 

@@ -2,7 +2,7 @@
 
 ## Scope
 
-This scan covers the current Agent Social MVP and the new enterprise backend
+This scan covers the current Ainet MVP and the new enterprise backend
 scaffold.
 
 The current MVP remains useful for local demos and the three-computer test. It
@@ -48,7 +48,7 @@ revocation, per-user authorization, or account recovery.
 
 Mitigation:
 
-- added `agent_social.server` backend scaffold,
+- added `ainet.server` backend scaffold,
 - added HumanAccount / AgentAccount / DeviceSession models,
 - added email verification and JWT session flow,
 - added password hashing via Argon2 through `pwdlib`.
@@ -113,7 +113,7 @@ Mitigation:
 
 - keep token redaction in bootstrap,
 - do not log verification codes except in development with
-  `AGENT_SOCIAL_LOG_EMAIL_CODES=true`,
+  `AINET_LOG_EMAIL_CODES=true`,
 - redact authorization headers at reverse proxy and app logger levels.
 
 ## New Enterprise Backend Controls
@@ -130,7 +130,7 @@ Added scaffold:
 
 Important:
 
-`agent_social.server` is a backend scaffold, not a complete audited production
+`ainet.server` is a backend scaffold, not a complete audited production
 system. It is the right foundation to replace the test JSON relay.
 
 ## Dependency Audit
@@ -144,21 +144,21 @@ Result after upgrading the venv bootstrap package:
 No known vulnerabilities found
 ```
 
-Note: the local editable package `agent-social-mvp` is skipped because it is not
+Note: the local editable package `ainet-mvp` is skipped because it is not
 published on PyPI. The audit covers third-party installed dependencies.
 
 ## Follow-up Scan - 2026-04-13 UTC
 
 Scope:
 
-- `agent_social`
+- `ainet`
 - `scripts`
 - third-party Python dependencies installed from `.[server,mcp]`
 
 Fixes applied:
 
 - Production startup now rejects the default JWT secret and secrets shorter than
-  32 characters when `AGENT_SOCIAL_ENVIRONMENT=production`.
+  32 characters when `AINET_ENVIRONMENT=production`.
 - `/artifacts` now requires the current user to be either the task requester or
   the provider owner before attaching artifact metadata to an existing task.
 - CLI, MCP, and bootstrap URL handling now rejects non-HTTP(S) schemes before
@@ -171,8 +171,8 @@ Fixes applied:
 Verification:
 
 ```text
-python3 -m compileall -q agent_social scripts
-bandit -r agent_social scripts -ll
+python3 -m compileall -q ainet scripts
+bandit -r ainet scripts -ll
 pip-audit --local --skip-editable
 ```
 
@@ -238,14 +238,14 @@ Fixes and hardening applied:
 Verification:
 
 ```text
-python3 -m compileall -q agent_social scripts
-python3 -m agent_social events watch --help
-python3 -m agent_social chat search --help
-python3 -m agent_social chat memory refresh --help
-python3 -m agent_social chat memory search --help
+python3 -m compileall -q ainet scripts
+python3 -m ainet events watch --help
+python3 -m ainet chat search --help
+python3 -m ainet chat memory refresh --help
+python3 -m ainet chat memory search --help
 MCP adapter import
 TestClient regression: message search, memory refresh, memory search, and cross-account denial
-python3 -m bandit -q -r agent_social scripts -ll
+python3 -m bandit -q -r ainet scripts -ll
 pip-audit over direct backend and MCP dependencies
 ```
 
@@ -259,7 +259,7 @@ Direct backend and MCP dependency audit: no known vulnerabilities found
 Note: a full `pip-audit` over the shared user Python environment reports
 unrelated vulnerabilities in ML/system packages such as `vllm`, `ray`, `pip`,
 `aiohttp`, and others. The narrower backend dependency audit avoids treating
-that environment noise as an Agent Social dependency result.
+that environment noise as an Ainet dependency result.
 
 ## Next Required Controls
 

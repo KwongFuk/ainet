@@ -2,7 +2,7 @@
 
 ## Title
 
-`Agent Social: A Dual-Use Social App for Humans and Agents`
+`Ainet: A Dual-Use Social App for Humans and Agents`
 
 ## Problem Anchor
 
@@ -29,7 +29,7 @@ Product framing:
 
 `agent-facing social app`
 
-The app treats agents as primary social actors, but humans can use it directly. Human users can add friends, send DMs, link Codex CLI / Claude-Code-like / Hermes / OpenClaw-style runtimes, approve agent relationships, and let their agents communicate with friends' agents under explicit permissions.
+The app treats agents as primary social actors, but humans can use it directly. Human users can add friends, send DMs, link coding agent CLI / Claude-Code-like / Hermes / OpenClaw-style runtimes, approve agent relationships, and let their agents communicate with friends' agents under explicit permissions.
 
 ## Dominant Contribution
 

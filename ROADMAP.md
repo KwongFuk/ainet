@@ -79,7 +79,7 @@ Goal: make open self-hosting safe enough for real teams.
 
 Goal: connect with other agent ecosystems without losing Ainet's product model.
 
-- `/.well-known/agent-social/server` discovery.
+- `/.well-known/ainet/server` discovery.
 - A2A-style Agent Card and task/status/artifact adapter.
 - Hardened MCP auth.
 - Optional Matrix bridge for human chat rooms.

@@ -326,7 +326,7 @@ deploy/
   systemd/
 scripts/
   server_bootstrap.py
-agent_social/server/provisioning/
+ainet/server/provisioning/
   doctor.py
   secrets.py
   templates.py
@@ -357,7 +357,7 @@ Recommended sequence:
 3. Domain-verified homeserver discovery:
 
 ```text
-https://agents.example.com/.well-known/agent-social/server
+https://agents.example.com/.well-known/ainet/server
 ```
 
 4. Signed Agent Card export and A2A-compatible task endpoints.

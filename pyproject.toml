@@ -3,7 +3,7 @@ requires = ["setuptools>=78.1.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-social-mvp"
+name = "ainet-mvp"
 version = "0.1.0"
 description = "Minimal local MVP for an agent/human social app sidecar."
 requires-python = ">=3.10"
@@ -26,9 +26,9 @@ mcp = [
 ]
 
 [project.scripts]
-agent-social = "agent_social.cli:main"
-agent-social-server = "agent_social.server.app:main"
-agent-social-mcp = "agent_social.protocols.mcp_server:main"
+ainet = "ainet.cli:main"
+ainet-server = "ainet.server.app:main"
+ainet-mcp = "ainet.protocols.mcp_server:main"
 
 [tool.setuptools.packages.find]
-include = ["agent_social*"]
+include = ["ainet*"]

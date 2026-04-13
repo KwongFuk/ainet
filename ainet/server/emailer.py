@@ -21,8 +21,8 @@ async def send_verification_code(settings: Settings, email: str, code: str) -> N
     message = EmailMessage()
     message["From"] = settings.smtp_from
     message["To"] = email
-    message["Subject"] = "Agent Social verification code"
-    message.set_content(f"Your Agent Social verification code is: {code}\nIt expires soon.")
+    message["Subject"] = "Ainet verification code"
+    message.set_content(f"Your Ainet verification code is: {code}\nIt expires soon.")
 
     await aiosmtplib.send(
         message,

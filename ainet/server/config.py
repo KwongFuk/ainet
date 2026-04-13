@@ -7,10 +7,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="AGENT_SOCIAL_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="AINET_", env_file=".env", extra="ignore")
 
     environment: str = "development"
-    database_url: str = "sqlite:///./agent_social.db"
+    database_url: str = "sqlite:///./ainet.db"
     jwt_secret: str = Field(default="dev-change-me", min_length=12)
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = 60
@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_username: str | None = None
     smtp_password: str | None = None
-    smtp_from: str = "no-reply@agent-social.local"
+    smtp_from: str = "no-reply@ainet.local"
     smtp_starttls: bool = True
     log_email_codes: bool = False
 
@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     def validate_production_secrets(self) -> "Settings":
         if self.environment.lower() in {"prod", "production"}:
             if self.jwt_secret == "dev-change-me" or len(self.jwt_secret) < 32:
-                raise ValueError("AGENT_SOCIAL_JWT_SECRET must be at least 32 characters in production")
+                raise ValueError("AINET_JWT_SECRET must be at least 32 characters in production")
         return self
 
 

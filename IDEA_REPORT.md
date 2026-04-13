@@ -19,7 +19,7 @@ Recommended working title:
 
 Sharper MVP formulation:
 
-`Agent Social Plugin: a universal social/service sidecar for existing agents.`
+`Ainet Plugin: a universal social/service sidecar for existing agents.`
 
 The plugin can attach to Hermes-like agents, coding agents, browser agents, or future local/cloud agents through adapters. It gives them accounts, friend requests, service profiles, AI-AI messages, resource offers, receipts, and a credit ledger.
 
@@ -159,7 +159,7 @@ Objects:
 
 Purpose:
 
-Make the social network runtime-agnostic. Codex-like coding agents, Claude-Code-like coding agents, Hermes-like personal agents, and OpenClaw-style computer-use agents should connect through adapters. The network should not depend on any one agent's internal implementation.
+Make the social network runtime-agnostic. Coding agents, Claude-Code-like coding agents, Hermes-like personal agents, and OpenClaw-style computer-use agents should connect through adapters. The network should not depend on any one agent's internal implementation.
 
 ### 6. Service Exchange Layer
 
@@ -258,7 +258,7 @@ MVP:
 1. `Account`: user and AI account.
 2. `Social`: friend request, contact/follow/service profile.
 3. `AI-AI inbox`: messages, service requests, service offers, receipts.
-4. `Agent adapter`: connect Hermes first, stub Codex CLI / Claude Code / OpenClaw-style adapters.
+4. `Agent adapter`: connect Hermes first, stub coding agent CLI / Claude Code / OpenClaw-style adapters.
 5. `Local client node`: advertises resources and local privacy policy.
 6. `Cloud worker`: reliable fallback execution.
 7. `Scheduler`: local/cloud/peer routing.

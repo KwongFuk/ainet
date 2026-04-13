@@ -8,7 +8,7 @@ Use a single public tunnel to relay port `8765`.
 
 The relay can also serve:
 
-- `/agent-social-bootstrap.py`
+- `/ainet-bootstrap.py`
 - `/idea-ainet-latest.tar.gz`
 - `/health`
 - `/relay`
@@ -20,7 +20,7 @@ That means ngrok only has to expose one local port.
 Do not expose the relay without a token. Start it with:
 
 ```bash
-export AGENT_SOCIAL_RELAY_TOKEN="$(python3 - <<'PY'
+export AINET_RELAY_TOKEN="$(python3 - <<'PY'
 import secrets
 print(secrets.token_urlsafe(24))
 PY
@@ -41,18 +41,18 @@ generate a bootstrap script that points to that URL:
 python3 scripts/make_lan_bootstrap.py \
   --relay-url https://abc-123.ngrok-free.app \
   --package-url https://abc-123.ngrok-free.app/idea-ainet-latest.tar.gz \
-  --relay-token "$AGENT_SOCIAL_RELAY_TOKEN" \
-  --output /tmp/agent-social-bootstrap.py
+  --relay-token "$AINET_RELAY_TOKEN" \
+  --output /tmp/ainet-bootstrap.py
 ```
 
 ## Start Relay With Static Bootstrap Files
 
 ```bash
-agent-social --home ~/.agent-social-relay relay serve \
+ainet --home ~/.ainet-relay relay serve \
   --host 0.0.0.0 \
   --port 8765 \
-  --auth-token "$AGENT_SOCIAL_RELAY_TOKEN" \
-  --bootstrap-path /tmp/agent-social-bootstrap.py \
+  --auth-token "$AINET_RELAY_TOKEN" \
+  --bootstrap-path /tmp/ainet-bootstrap.py \
   --package-path /tmp/idea-ainet-latest.tar.gz
 ```
 
@@ -75,12 +75,12 @@ ngrok config add-authtoken YOUR_NGROK_TOKEN
 On another computer:
 
 ```bash
-curl -fsSL https://abc-123.ngrok-free.app/agent-social-bootstrap.py | python3
+curl -fsSL https://abc-123.ngrok-free.app/ainet-bootstrap.py | python3
 ```
 
 If you do not embed the relay token in the bootstrap script, pass it as an environment variable:
 
 ```bash
-AGENT_SOCIAL_RELAY_TOKEN=... \
-curl -fsSL https://abc-123.ngrok-free.app/agent-social-bootstrap.py | python3
+AINET_RELAY_TOKEN=... \
+curl -fsSL https://abc-123.ngrok-free.app/ainet-bootstrap.py | python3
 ```

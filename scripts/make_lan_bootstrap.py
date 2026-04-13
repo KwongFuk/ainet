@@ -22,7 +22,7 @@ def main() -> int:
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
-    template = Path(__file__).with_name("bootstrap_agent_social.py").read_text(encoding="utf-8")
+    template = Path(__file__).with_name("bootstrap_ainet.py").read_text(encoding="utf-8")
     relay_url = require_http_url(args.relay_url, "relay URL")
     package_url = require_http_url(args.package_url, "package URL")
     rendered = (

@@ -18,10 +18,10 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_HOME = Path(os.environ.get("AGENT_SOCIAL_HOME", "~/.agent-social")).expanduser()
-DEFAULT_RELAY_URL = os.environ.get("AGENT_SOCIAL_RELAY_URL")
-DEFAULT_RELAY_TOKEN = os.environ.get("AGENT_SOCIAL_RELAY_TOKEN")
-DEFAULT_API_URL = os.environ.get("AGENT_SOCIAL_API_URL", "http://127.0.0.1:8787")
+DEFAULT_HOME = Path(os.environ.get("AINET_HOME", "~/.ainet")).expanduser()
+DEFAULT_RELAY_URL = os.environ.get("AINET_RELAY_URL")
+DEFAULT_RELAY_TOKEN = os.environ.get("AINET_RELAY_TOKEN")
+DEFAULT_API_URL = os.environ.get("AINET_API_URL", "http://127.0.0.1:8787")
 
 
 def require_http_url(url: str, label: str) -> str:
@@ -75,7 +75,7 @@ class Paths:
 
     @property
     def relay(self) -> Path:
-        return Path(os.environ.get("AGENT_SOCIAL_RELAY", str(self.home / "relay.json"))).expanduser()
+        return Path(os.environ.get("AINET_RELAY", str(self.home / "relay.json"))).expanduser()
 
 
 def default_config() -> dict[str, Any]:
@@ -136,7 +136,7 @@ def http_json(method: str, url: str, payload: dict[str, Any] | None = None) -> d
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
-    token = os.environ.get("AGENT_SOCIAL_RELAY_TOKEN")
+    token = os.environ.get("AINET_RELAY_TOKEN")
     if token:
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
@@ -222,7 +222,7 @@ def resolve_api_url(args: argparse.Namespace, config: dict[str, Any]) -> str:
     return (
         getattr(args, "api_url", None)
         or config.get("auth", {}).get("api_url")
-        or os.environ.get("AGENT_SOCIAL_API_URL")
+        or os.environ.get("AINET_API_URL")
         or DEFAULT_API_URL
     )
 
@@ -233,7 +233,7 @@ def host_name() -> str:
     try:
         return os.uname().nodename
     except AttributeError:
-        return "agent-social-cli"
+        return "ainet-cli"
 
 
 def normalize_handle(handle: str) -> str:
@@ -309,7 +309,7 @@ def cmd_auth_signup(args: argparse.Namespace, paths: Paths) -> int:
     print(f"signed up {email.lower()} at {api_url}")
     print(f"user_id: {response.get('user_id')}")
     if response.get("verification_required", True):
-        print("verification required: run `agent-social auth verify-email --email EMAIL --code CODE`")
+        print("verification required: run `ainet auth verify-email --email EMAIL --code CODE`")
     return 0
 
 
@@ -327,7 +327,7 @@ def cmd_auth_verify_email(args: argparse.Namespace, paths: Paths) -> int:
     config["auth"]["email_verified_at"] = utc_now()
     save_config(paths, config)
     print(f"verified {email.lower()}")
-    print("next: run `agent-social auth login`")
+    print("next: run `ainet auth login`")
     return 0
 
 
@@ -536,78 +536,20 @@ def cmd_chat_memory_search(args: argparse.Namespace, paths: Paths) -> int:
     return 0
 
 
-def toml_quote(value: str) -> str:
-    return json.dumps(value)
-
-
-def toml_array(values: list[str]) -> str:
-    return "[" + ", ".join(toml_quote(value) for value in values) + "]"
-
-
-def toml_inline_table(values: dict[str, str]) -> str:
-    items = ", ".join(f"{key} = {toml_quote(value)}" for key, value in sorted(values.items()))
-    return "{ " + items + " }"
-
-
 def mcp_env(paths: Paths, api_url: str) -> dict[str, str]:
     return {
-        "AGENT_SOCIAL_HOME": str(paths.home),
-        "AGENT_SOCIAL_API_URL": api_url,
-        "AGENT_SOCIAL_MCP_TRANSPORT": "stdio",
+        "AINET_HOME": str(paths.home),
+        "AINET_API_URL": api_url,
+        "AINET_MCP_TRANSPORT": "stdio",
     }
 
 
 def mcp_server_command(args: argparse.Namespace) -> str:
-    return args.command or shutil.which("agent-social-mcp") or "agent-social-mcp"
+    return args.command or shutil.which("ainet-mcp") or "ainet-mcp"
 
 
 def mcp_json_config(name: str, command: str, command_args: list[str], env: dict[str, str]) -> dict[str, Any]:
     return {"mcpServers": {name: {"command": command, "args": command_args, "env": env}}}
-
-
-def replace_marked_block(text: str, start: str, end: str, block: str) -> str:
-    if start in text and end in text:
-        before, rest = text.split(start, 1)
-        _, after = rest.split(end, 1)
-        return before.rstrip() + "\n\n" + block.rstrip() + "\n" + after
-    suffix = "\n" if text.endswith("\n") or not text else "\n\n"
-    return text + suffix + block.rstrip() + "\n"
-
-
-def install_codex_mcp(
-    target_path: Path,
-    name: str,
-    command: str,
-    command_args: list[str],
-    env: dict[str, str],
-    backup: bool,
-) -> None:
-    start = "# BEGIN Agent Social MCP"
-    end = "# END Agent Social MCP"
-    block = "\n".join(
-        [
-            start,
-            f'[mcp_servers.{toml_quote(name)}]',
-            f"command = {toml_quote(command)}",
-            f"args = {toml_array(command_args)}",
-            f"env = {toml_inline_table(env)}",
-            end,
-        ]
-    )
-    existing = target_path.read_text(encoding="utf-8") if target_path.exists() else ""
-    if backup and target_path.exists():
-        backup_path = target_path.with_suffix(target_path.suffix + f".bak-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
-        backup_path.write_text(existing, encoding="utf-8")
-        try:
-            backup_path.chmod(0o600)
-        except OSError:
-            pass
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    target_path.write_text(replace_marked_block(existing, start, end, block), encoding="utf-8")
-    try:
-        target_path.chmod(0o600)
-    except OSError:
-        pass
 
 
 def cmd_mcp_install(args: argparse.Namespace, paths: Paths) -> int:
@@ -615,7 +557,7 @@ def cmd_mcp_install(args: argparse.Namespace, paths: Paths) -> int:
     api_url = resolve_api_url(args, config)
     auth = config.get("auth", {})
     if args.require_auth and not auth.get("access_token"):
-        raise SystemExit("not logged in. Run `agent-social auth login` first.")
+        raise SystemExit("not logged in. Run `ainet auth login` first.")
     name = args.name
     command = mcp_server_command(args)
     command_args = args.arg or []
@@ -623,14 +565,9 @@ def cmd_mcp_install(args: argparse.Namespace, paths: Paths) -> int:
 
     written: list[str] = []
     target = args.target
-    if target in {"json", "all"}:
-        output = Path(args.output).expanduser() if args.output else paths.home / "mcp.json"
-        write_json_atomic(output, mcp_json_config(name, command, command_args, env))
-        written.append(str(output))
-    if target in {"codex", "all"}:
-        codex_path = Path(args.codex_config).expanduser() if args.codex_config else Path("~/.codex/config.toml").expanduser()
-        install_codex_mcp(codex_path, name, command, command_args, env, backup=not args.no_backup)
-        written.append(str(codex_path))
+    output = Path(args.output).expanduser() if args.output else paths.home / "mcp.json"
+    write_json_atomic(output, mcp_json_config(name, command, command_args, env))
+    written.append(str(output))
 
     config["mcp"] = {
         "server_name": name,
@@ -645,7 +582,7 @@ def cmd_mcp_install(args: argparse.Namespace, paths: Paths) -> int:
     print(f"installed MCP server `{name}`")
     for path in written:
         print(f"wrote: {path}")
-    print("token source: local Agent Social auth config")
+    print("token source: local Ainet auth config")
     return 0
 
 
@@ -654,7 +591,7 @@ def require_auth(config: dict[str, Any]) -> tuple[str, str]:
     api_url = auth.get("api_url") or DEFAULT_API_URL
     token = auth.get("access_token")
     if not token:
-        raise SystemExit("not logged in. Run `agent-social auth login` first.")
+        raise SystemExit("not logged in. Run `ainet auth login` first.")
     return api_url, token
 
 
@@ -1108,9 +1045,9 @@ def cmd_demo(_args: argparse.Namespace, paths: Paths) -> int:
             "--profile",
             "bob",
             "--handle",
-            "bob.codex",
+            "bob.agent",
             "--runtime",
-            "codex-cli",
+            "coding-agent",
             "--owner",
             "bob",
             "--capability",
@@ -1122,7 +1059,7 @@ def cmd_demo(_args: argparse.Namespace, paths: Paths) -> int:
         [
             "friend",
             "add",
-            "bob.codex",
+            "bob.agent",
             "--profile",
             "alice",
             "--permission",
@@ -1135,44 +1072,44 @@ def cmd_demo(_args: argparse.Namespace, paths: Paths) -> int:
     ]
     print(f"demo home: {paths.home}")
     for step in steps:
-        print(f"\n$ agent-social {' '.join(step)}")
+        print(f"\n$ ainet {' '.join(step)}")
         dispatch(step, paths)
 
     relay = load_relay(paths)
     pending = [
         request
         for request in relay["friend_requests"].values()
-        if request["to_handle"] == "bob.codex" and request["status"] == "pending"
+        if request["to_handle"] == "bob.agent" and request["status"] == "pending"
     ]
     if pending:
         request_id = sorted(pending, key=lambda item: item["created_at"])[-1]["request_id"]
         accept_step = ["friend", "accept", request_id, "--profile", "bob"]
-        print(f"\n$ agent-social {' '.join(accept_step)}")
+        print(f"\n$ ainet {' '.join(accept_step)}")
         dispatch(accept_step, paths)
     else:
         print("\n(no pending request to accept; the demo accounts may already be friends)")
-    print("\n$ agent-social friends --profile alice")
+    print("\n$ ainet friends --profile alice")
     dispatch(["friends", "--profile", "alice"], paths)
-    print("\n$ agent-social friends --profile bob")
+    print("\n$ ainet friends --profile bob")
     dispatch(["friends", "--profile", "bob"], paths)
     dm_step = [
         "dm",
         "send",
-        "bob.codex",
+        "bob.agent",
         "hello from alice.hermes",
         "--profile",
         "alice",
     ]
-    print(f"\n$ agent-social {' '.join(dm_step)}")
+    print(f"\n$ ainet {' '.join(dm_step)}")
     dispatch(dm_step, paths)
-    print("\n$ agent-social dm inbox --profile bob")
+    print("\n$ ainet dm inbox --profile bob")
     dispatch(["dm", "inbox", "--profile", "bob"], paths)
     return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="agent-social", description="Minimal Agent Social MVP")
-    parser.add_argument("--home", default=str(DEFAULT_HOME), help="state directory, default: ~/.agent-social")
+    parser = argparse.ArgumentParser(prog="ainet", description="Minimal Ainet MVP")
+    parser.add_argument("--home", default=str(DEFAULT_HOME), help="state directory, default: ~/.ainet")
     parser.add_argument(
         "--relay-url",
         default=DEFAULT_RELAY_URL,
@@ -1181,28 +1118,28 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--relay-token",
         default=DEFAULT_RELAY_TOKEN,
-        help="bearer token for an HTTP relay; can also use AGENT_SOCIAL_RELAY_TOKEN",
+        help="bearer token for an HTTP relay; can also use AINET_RELAY_TOKEN",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
     auth = sub.add_parser("auth", help="enterprise backend authentication")
     auth_sub = auth.add_subparsers(dest="auth_command", required=True)
 
-    auth_signup = auth_sub.add_parser("signup", help="create an account on the Agent Social API")
-    auth_signup.add_argument("--api-url", help="Agent Social backend URL")
+    auth_signup = auth_sub.add_parser("signup", help="create an account on the Ainet API")
+    auth_signup.add_argument("--api-url", help="Ainet backend URL")
     auth_signup.add_argument("--email", help="account email")
     auth_signup.add_argument("--username", help="account username")
     auth_signup.add_argument("--password", help="account password; omit to prompt securely")
     auth_signup.set_defaults(func=cmd_auth_signup)
 
     auth_verify = auth_sub.add_parser("verify-email", help="verify an account email code")
-    auth_verify.add_argument("--api-url", help="Agent Social backend URL")
+    auth_verify.add_argument("--api-url", help="Ainet backend URL")
     auth_verify.add_argument("--email", help="account email")
     auth_verify.add_argument("--code", help="email verification code")
     auth_verify.set_defaults(func=cmd_auth_verify_email)
 
-    auth_login = auth_sub.add_parser("login", help="login to the Agent Social API and save a local token")
-    auth_login.add_argument("--api-url", help="Agent Social backend URL")
+    auth_login = auth_sub.add_parser("login", help="login to the Ainet API and save a local token")
+    auth_login.add_argument("--api-url", help="Ainet backend URL")
     auth_login.add_argument("--email", help="account email")
     auth_login.add_argument("--password", help="account password; omit to prompt securely")
     auth_login.add_argument("--device-name", help="device/session name")
@@ -1210,7 +1147,7 @@ def build_parser() -> argparse.ArgumentParser:
     auth_login.set_defaults(func=cmd_auth_login)
 
     auth_status = auth_sub.add_parser("status", help="show local login status")
-    auth_status.add_argument("--api-url", help="Agent Social backend URL")
+    auth_status.add_argument("--api-url", help="Ainet backend URL")
     auth_status.add_argument("--check", action="store_true", help="check the token against the server")
     auth_status.set_defaults(func=cmd_auth_status)
 
@@ -1224,7 +1161,7 @@ def build_parser() -> argparse.ArgumentParser:
     invite_create.set_defaults(func=cmd_auth_invite_create)
     invite_accept = invite_sub.add_parser("accept", help="accept a device invite and save local auth")
     invite_accept.add_argument("token", nargs="?", help="invite token; omit to prompt")
-    invite_accept.add_argument("--api-url", help="Agent Social backend URL")
+    invite_accept.add_argument("--api-url", help="Ainet backend URL")
     invite_accept.add_argument("--device-name", help="device/session name")
     invite_accept.add_argument("--runtime-type", default="agent-cli", help="runtime type for this session")
     invite_accept.set_defaults(func=cmd_auth_invite_accept)
@@ -1242,15 +1179,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     mcp = sub.add_parser("mcp", help="MCP adapter operations")
     mcp_sub = mcp.add_subparsers(dest="mcp_command", required=True)
-    mcp_install = mcp_sub.add_parser("install", help="write MCP client configuration for Agent Social")
-    mcp_install.add_argument("--target", choices=["json", "codex", "all"], default="json", help="configuration target")
-    mcp_install.add_argument("--name", default="agent-social", help="MCP server name")
-    mcp_install.add_argument("--api-url", help="Agent Social backend URL")
-    mcp_install.add_argument("--output", help="output path for --target json; defaults to ~/.agent-social/mcp.json")
-    mcp_install.add_argument("--codex-config", help="Codex config path for --target codex; defaults to ~/.codex/config.toml")
-    mcp_install.add_argument("--command", help="MCP server command; defaults to agent-social-mcp on PATH")
+    mcp_install = mcp_sub.add_parser("install", help="write MCP client configuration for Ainet")
+    mcp_install.add_argument("--target", choices=["json"], default="json", help="configuration target")
+    mcp_install.add_argument("--name", default="ainet", help="MCP server name")
+    mcp_install.add_argument("--api-url", help="Ainet backend URL")
+    mcp_install.add_argument("--output", help="output path for --target json; defaults to ~/.ainet/mcp.json")
+    mcp_install.add_argument("--command", help="MCP server command; defaults to ainet-mcp on PATH")
     mcp_install.add_argument("--arg", action="append", help="argument to pass to the MCP server command")
-    mcp_install.add_argument("--no-backup", action="store_true", help="do not back up Codex config before editing")
     mcp_install.add_argument("--require-auth", action="store_true", help="fail if auth login has not been saved")
     mcp_install.set_defaults(func=cmd_mcp_install)
 
@@ -1286,16 +1221,16 @@ def build_parser() -> argparse.ArgumentParser:
     agent = sub.add_parser("agent", help="enterprise backend agent account operations")
     agent_sub = agent.add_subparsers(dest="agent_command", required=True)
     agent_create = agent_sub.add_parser("create", help="create a backend agent handle for this account")
-    agent_create.add_argument("--handle", required=True, help="agent handle, e.g. alice.codex")
+    agent_create.add_argument("--handle", required=True, help="agent handle, e.g. alice.agent")
     agent_create.add_argument("--display-name", help="optional display name")
-    agent_create.add_argument("--runtime-type", default="agent-cli", help="runtime type, e.g. codex-cli")
+    agent_create.add_argument("--runtime-type", default="agent-cli", help="runtime type, e.g. coding-agent")
     agent_create.add_argument("--profile", help="local profile name to update")
     agent_create.set_defaults(func=cmd_agent_create)
 
     install = sub.add_parser("install", help="install a local agent profile")
     install.add_argument("--profile", required=True, help="local profile name")
     install.add_argument("--handle", required=True, help="public agent handle")
-    install.add_argument("--runtime", required=True, help="runtime type, e.g. codex-cli, openclaw")
+    install.add_argument("--runtime", required=True, help="runtime type, e.g. coding-agent, openclaw")
     install.add_argument("--owner", default=None, help="human owner handle")
     install.add_argument("--capability", action="append", help="capability to publish")
     install.add_argument("--adapter-mode", default="sidecar", help="sidecar, wrapper, rpc, mcp, native")
@@ -1366,7 +1301,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_RELAY_TOKEN,
         help="require this bearer token for /relay; health stays public",
     )
-    relay_serve.add_argument("--bootstrap-path", help="serve this file at /agent-social-bootstrap.py")
+    relay_serve.add_argument("--bootstrap-path", help="serve this file at /ainet-bootstrap.py")
     relay_serve.add_argument("--package-path", help="serve this file at /idea-ainet-latest.tar.gz")
     relay_serve.set_defaults(func=cmd_relay_serve)
 
@@ -1381,7 +1316,7 @@ def dispatch(argv: list[str], paths: Paths) -> int:
     token_args = ["--relay-token", paths.relay_token] if paths.relay_token else []
     args = parser.parse_args(["--home", str(paths.home), *relay_args, *token_args, *argv])
     if args.relay_token:
-        os.environ["AGENT_SOCIAL_RELAY_TOKEN"] = args.relay_token
+        os.environ["AINET_RELAY_TOKEN"] = args.relay_token
     return args.func(args, paths)
 
 
@@ -1393,6 +1328,6 @@ def main(argv: list[str] | None = None) -> int:
     relay_url = args.relay_url or config.get("relay_url")
     relay_token = args.relay_token or config.get("relay_token")
     if relay_token:
-        os.environ["AGENT_SOCIAL_RELAY_TOKEN"] = relay_token
+        os.environ["AINET_RELAY_TOKEN"] = relay_token
     paths = Paths(home=home, relay_url=relay_url, relay_token=relay_token)
     return args.func(args, paths)

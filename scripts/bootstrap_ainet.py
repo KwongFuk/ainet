@@ -36,11 +36,9 @@ def clean_token(value: str, fallback: str) -> str:
 
 
 def detect_runtime() -> str:
-    explicit = os.environ.get("AGENT_SOCIAL_RUNTIME")
+    explicit = os.environ.get("AINET_RUNTIME")
     if explicit:
         return clean_token(explicit, "agent")
-    if shutil.which("codex"):
-        return "codex-cli"
     if shutil.which("openclaw") or shutil.which("opclaw"):
         return "openclaw"
     if shutil.which("claude"):
@@ -49,7 +47,7 @@ def detect_runtime() -> str:
 
 
 def capabilities_for(runtime: str) -> list[str]:
-    if runtime == "codex-cli":
+    if runtime == "coding-agent":
         return ["code_review", "patch_suggestion"]
     if runtime == "openclaw":
         return ["browser_task"]
@@ -105,7 +103,7 @@ def health_check(relay_url: str) -> None:
 
 
 def build_handle(runtime: str) -> str:
-    explicit = os.environ.get("AGENT_SOCIAL_HANDLE")
+    explicit = os.environ.get("AINET_HANDLE")
     if explicit:
         return clean_token(explicit, "agent.local")
     user = clean_token(getpass.getuser(), "user")
@@ -115,22 +113,22 @@ def build_handle(runtime: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="One-step Agent Social LAN bootstrap")
-    parser.add_argument("--relay-url", default=os.environ.get("AGENT_SOCIAL_RELAY_URL", DEFAULT_RELAY_URL))
-    default_token = os.environ.get("AGENT_SOCIAL_RELAY_TOKEN") or None
+    parser = argparse.ArgumentParser(description="One-step Ainet LAN bootstrap")
+    parser.add_argument("--relay-url", default=os.environ.get("AINET_RELAY_URL", DEFAULT_RELAY_URL))
+    default_token = os.environ.get("AINET_RELAY_TOKEN") or None
     if DEFAULT_RELAY_TOKEN and not DEFAULT_RELAY_TOKEN.startswith("__"):
         default_token = DEFAULT_RELAY_TOKEN
     parser.add_argument("--relay-token", default=default_token)
-    parser.add_argument("--package-url", default=os.environ.get("AGENT_SOCIAL_PACKAGE_URL", DEFAULT_PACKAGE_URL))
-    parser.add_argument("--home", default=os.environ.get("AGENT_SOCIAL_HOME", str(Path.home() / ".agent-social")))
-    parser.add_argument("--install-dir", default=os.environ.get("AGENT_SOCIAL_INSTALL_DIR", str(Path.home() / ".agent-social" / "app")))
-    parser.add_argument("--profile", default=os.environ.get("AGENT_SOCIAL_PROFILE", "default"))
+    parser.add_argument("--package-url", default=os.environ.get("AINET_PACKAGE_URL", DEFAULT_PACKAGE_URL))
+    parser.add_argument("--home", default=os.environ.get("AINET_HOME", str(Path.home() / ".ainet")))
+    parser.add_argument("--install-dir", default=os.environ.get("AINET_INSTALL_DIR", str(Path.home() / ".ainet" / "app")))
+    parser.add_argument("--profile", default=os.environ.get("AINET_PROFILE", "default"))
     args = parser.parse_args(argv)
 
     if not args.relay_url or args.relay_url.startswith("__"):
-        raise SystemExit("missing relay URL; set AGENT_SOCIAL_RELAY_URL or generate a LAN bootstrap script")
+        raise SystemExit("missing relay URL; set AINET_RELAY_URL or generate a LAN bootstrap script")
     if not args.package_url or args.package_url.startswith("__"):
-        raise SystemExit("missing package URL; set AGENT_SOCIAL_PACKAGE_URL or generate a LAN bootstrap script")
+        raise SystemExit("missing package URL; set AINET_PACKAGE_URL or generate a LAN bootstrap script")
 
     relay_url = require_http_url(args.relay_url.rstrip("/"), "relay URL")
     package_url = require_http_url(args.package_url, "package URL")
@@ -144,8 +142,8 @@ def main(argv: list[str] | None = None) -> int:
     home.mkdir(parents=True, exist_ok=True)
     install_dir.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory(prefix="agent-social-bootstrap-") as tmp:
-        archive = Path(tmp) / "agent-social.tar.gz"
+    with tempfile.TemporaryDirectory(prefix="ainet-bootstrap-") as tmp:
+        archive = Path(tmp) / "ainet.tar.gz"
         download_package(package_url, archive)
         extract_package(archive, source_dir)
 
@@ -153,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
     install_cmd = [
         sys.executable,
         "-m",
-        "agent_social",
+        "ainet",
         "--home",
         str(home),
         "--relay-url",
@@ -175,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
     run([
         sys.executable,
         "-m",
-        "agent_social",
+        "ainet",
         "--home",
         str(home),
         "--relay-url",
@@ -188,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
     run([
         sys.executable,
         "-m",
-        "agent_social",
+        "ainet",
         "--home",
         str(home),
         "--relay-url",
@@ -199,15 +197,15 @@ def main(argv: list[str] | None = None) -> int:
         args.profile,
     ])
 
-    print("\nAgent Social bootstrap complete.")
+    print("\nAinet bootstrap complete.")
     print(f"relay: {relay_url}")
     print(f"profile: {args.profile}")
     print(f"handle: {handle}")
     print("\nNext useful command:")
-    default_home = Path.home() / ".agent-social"
+    default_home = Path.home() / ".ainet"
     home_hint = f" --home {home}" if home != default_home else ""
-    print(f"  agent-social{home_hint} directory")
-    print(f"  {sys.executable} -m agent_social{home_hint} directory")
+    print(f"  ainet{home_hint} directory")
+    print(f"  {sys.executable} -m ainet{home_hint} directory")
     return 0
 
 

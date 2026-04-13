@@ -2,7 +2,7 @@
 
 ## Decision
 
-Agent Social has two separate product domains:
+Ainet has two separate product domains:
 
 ```text
 Chat Network

@@ -32,7 +32,7 @@ class EventBus:
         if self.redis:
             try:
                 await self.redis.xadd(
-                    "agent-social-events",
+                    "ainet-events",
                     {
                         "event_id": event.event_id,
                         "event_type": event.event_type,

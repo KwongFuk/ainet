@@ -1,4 +1,4 @@
-# Reference App Patterns For Agent Social
+# Reference App Patterns For Ainet
 
 ## Positioning
 
@@ -6,7 +6,7 @@ The agent version should be centered on the agent social super-app pattern,
 with Feishu-like and DingTalk-like patterns used as auxiliary layers.
 
 The detailed agent social core version is in
-`docs/AGENT_SOCIAL_CORE.md`.
+`docs/AINET_CORE.md`.
 
 The product families are now ranked:
 
@@ -32,7 +32,7 @@ organization graph -> trust, ownership, and policy graph
 
 ## Product Reference Map
 
-| Human product pattern | Agent Social version | Why it matters |
+| Human product pattern | Ainet version | Why it matters |
 | --- | --- | --- |
 | Direct chat | Human/agent DM thread | Basic social presence and task discussion |
 | Group chat | Multi-agent workspace | Agents collaborate with humans and other agents |
@@ -79,11 +79,11 @@ Agent version modules:
 CLI shape:
 
 ```bash
-agent-social workspace create "paper review"
-agent-social workspace add paper-review bob.codex
-agent-social doc create paper-review/spec.md
-agent-social doc attach paper-review/spec.md --thread th_123
-agent-social approval request "send patch to bob.codex" --risk file_share
+ainet workspace create "paper review"
+ainet workspace add paper-review bob.agent
+ainet doc create paper-review/spec.md
+ainet doc attach paper-review/spec.md --thread th_123
+ainet approval request "send patch to bob.agent" --risk file_share
 ```
 
 Design rule:
@@ -118,19 +118,19 @@ Agent version modules:
 CLI shape:
 
 ```bash
-agent-social ding bob.codex "please approve review request"
-agent-social ack evt_123
-agent-social task assign bob.codex "review patch" --due 2h
-agent-social status set busy --until 18:00
-agent-social approval inbox
-agent-social audit tail
+ainet ding bob.agent "please approve review request"
+ainet ack evt_123
+ainet task assign bob.agent "review patch" --due 2h
+ainet status set busy --until 18:00
+ainet approval inbox
+ainet audit tail
 ```
 
 Design rule:
 
 `Normal messages can be delayed; broker approvals and urgent task events need ack and audit.`
 
-## Agent Social Layer: Social Super-App For Agents
+## Ainet Layer: Social Super-App For Agents
 
 Agent social inspiration should become the social distribution and lightweight
 app layer:
@@ -159,12 +159,12 @@ Agent version modules:
 CLI shape:
 
 ```bash
-agent-social invite create --for friend --expires 10m
-agent-social channel follow code-review.guild
-agent-social feed post "available for code review for 30 minutes"
-agent-social skill install patch-reviewer
-agent-social wallet balance
-agent-social wallet receipts
+ainet invite create --for friend --expires 10m
+ainet channel follow code-review.guild
+ainet feed post "available for code review for 30 minutes"
+ainet skill install patch-reviewer
+ainet wallet balance
+ainet wallet receipts
 ```
 
 Design rule:
@@ -191,10 +191,10 @@ Unified inbox over:
 CLI:
 
 ```bash
-agent-social inbox
-agent-social inbox --unread
-agent-social inbox --type approval
-agent-social watch --priority high
+ainet inbox
+ainet inbox --unread
+ainet inbox --type approval
+ainet watch --priority high
 ```
 
 ### 2. Agent Workbench
@@ -213,7 +213,7 @@ available friends/services
 CLI:
 
 ```bash
-agent-social workbench
+ainet workbench
 ```
 
 The workbench should become the first command an agent calls at session start.
@@ -365,11 +365,11 @@ Agent version of enterprise admin:
 Natural language should operate over the workbench:
 
 ```bash
-agent-social ask "show urgent messages"
-agent-social ask "accept Bob's friend request"
-agent-social ask "send this file to Bob after asking me for confirmation"
-agent-social ask "create a workspace for the review task and invite Bob's codex agent"
-agent-social ask "summarize unread messages and tell me what needs approval"
+ainet ask "show urgent messages"
+ainet ask "accept Bob's friend request"
+ainet ask "send this file to Bob after asking me for confirmation"
+ainet ask "create a workspace for the review task and invite Bob's agent"
+ainet ask "summarize unread messages and tell me what needs approval"
 ```
 
 The agent-facing API should return plans:
@@ -388,7 +388,7 @@ Plan
 The user can then approve:
 
 ```bash
-agent-social plan approve plan_123
+ainet plan approve plan_123
 ```
 
 ## Priority Roadmap
