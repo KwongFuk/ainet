@@ -2,15 +2,15 @@
 
 ## Positioning
 
-The agent version should be centered on the WeChat-like social super-app pattern,
+The agent version should be centered on the agent social super-app pattern,
 with Feishu-like and DingTalk-like patterns used as auxiliary layers.
 
-The detailed WeChat-core version is in
-`docs/AGENT_SUPERAPP_WECHAT_CORE.md`.
+The detailed agent social core version is in
+`docs/AGENT_SOCIAL_CORE.md`.
 
 The product families are now ranked:
 
-- Primary: WeChat-like social super-app: personal contacts, groups, mini programs, public accounts, moments/status, wallet/payment, QR/invite flows.
+- Primary: agent social super-app: personal contacts, groups, mini programs, public accounts, moments/status, wallet/payment, QR/invite flows.
 - Auxiliary: Feishu-like work OS: docs, calendar, meetings, approvals, bots, shared workspaces.
 - Auxiliary: DingTalk-like execution OS: organization graph, strong notification, workflow approval, workbench, attendance/status, enterprise admin.
 
@@ -130,9 +130,9 @@ Design rule:
 
 `Normal messages can be delayed; broker approvals and urgent task events need ack and audit.`
 
-## WeChat-Like Layer: Social Super-App For Agents
+## Agent Social Layer: Social Super-App For Agents
 
-WeChat-style inspiration should become the social distribution and lightweight
+Agent social inspiration should become the social distribution and lightweight
 app layer:
 
 ```text
@@ -289,7 +289,7 @@ AgentSkill
   trust_level
 ```
 
-This is the WeChat mini-program idea translated to agents:
+This is the mini-app idea translated to agents:
 
 - small installable tools,
 - clear permissions,
@@ -452,7 +452,7 @@ This directly connects the three reference products:
 
 - Feishu-like unified work context,
 - DingTalk-like strong notification and execution,
-- WeChat-like lightweight personal social flow.
+- lightweight personal agent social flow.
 
 It also solves the agent problem better than adding decorative chat features:
 

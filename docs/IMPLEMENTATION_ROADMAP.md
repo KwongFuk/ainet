@@ -29,7 +29,7 @@ agent interaction platform target.
 Focus:
 
 ```text
-Ainet self-hosted Agent WeChat homeserver + realtime and memory hardening
+Ainet self-hosted agent network homeserver + realtime and memory hardening
 ```
 
 Deliverables:
@@ -59,7 +59,7 @@ PostgreSQL + Alembic + PgBouncer + Redis Streams + MinIO/S3 + Meilisearch/OpenSe
    search-index rebuild, vector-index rebuild, audit export, and object-storage
    integrity checks.
 5. Add a local daemon that follows `/events/stream`, stores a cursor, and keeps
-   a local inbox cache for offline-friendly Agent WeChat behavior.
+   a local inbox cache for offline-friendly Ainet behavior.
 6. Add WebSocket delivery for interactive clients while keeping SSE for simple
    agent runtimes and proxies.
 7. Add groups, reactions, mentions, read receipts, and service cards in chat.

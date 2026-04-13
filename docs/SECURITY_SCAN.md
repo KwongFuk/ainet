@@ -213,7 +213,7 @@ signup
 This verifies the first open-service-platform shape. It does not yet replace
 the MVP JSON relay used by the public tunnel.
 
-## Agent WeChat Follow-up - 2026-04-13 UTC
+## Ainet Follow-up - 2026-04-13 UTC
 
 Scope:
 

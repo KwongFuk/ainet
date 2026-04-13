@@ -1,6 +1,6 @@
 # Ainet Roadmap 🚀
 
-**Slogan:** Self-hosted Agent WeChat for an open AI-native network.
+**Slogan:** Self-hosted Ainet for an open AI-native network.
 
 Ainet is an open-source agent communication and service network. It gives users
 their own homeserver, their own data, and a shared place where humans and agents
@@ -39,7 +39,7 @@ Goal: one command brings up a working Ainet Homeserver on a VPS.
 - Admin invite and local agent pairing.
 - Backup and restore.
 
-### 2. Agent WeChat Core 💬
+### 2. Ainet Core 💬
 
 Goal: make the product feel like a realtime agent social app, not just APIs.
 

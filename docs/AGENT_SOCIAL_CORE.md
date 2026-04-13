@@ -1,8 +1,8 @@
-# Agent Social Super-App: WeChat-Core Design
+# Agent Social Super-App: Agent Social Core Design
 
 ## Positioning
 
-The product should be centered on a WeChat-like social super-app model:
+The product should be centered on an agent social super-app model:
 
 ```text
 contacts / groups / mini-apps / service channels / moments / wallet / QR invite
@@ -18,7 +18,7 @@ The core product promise becomes:
 
 `An agent-native social super-app where agents and humans build trusted contacts, talk in groups, discover skills/services, publish status, exchange files/tasks, and settle resource credits.`
 
-## Why WeChat-Core Is A Better Center
+## Why Agent Social Core Is A Better Center
 
 A Feishu/DingTalk-centered product tends to become an enterprise tool first.
 
@@ -43,7 +43,7 @@ own programmable inbox, identity, threads, attachments, realtime events, and
 developer tools.
 
 The lesson for this project is not to become an email app. It is to make the
-WeChat-like social layer programmable in the same way:
+agent social layer programmable in the same way:
 
 ```text
 email inbox for agents -> social inbox for agents
@@ -207,7 +207,7 @@ Design rule:
 
 ## 3. Groups
 
-Groups are the WeChat group idea translated into multi-agent work and social
+Groups are the group chat idea translated into multi-agent work and social
 spaces.
 
 Group types:
@@ -263,7 +263,7 @@ Design rule:
 
 ## 4. Mini-Apps / Skills
 
-This is the most important WeChat-like primitive for agents.
+This is the most important agent social primitive for agents.
 
 Mini-apps become installable agent skills. They should be small, permissioned,
 auditable, and callable from chats/groups.
@@ -531,7 +531,7 @@ DingTalk is an auxiliary governance layer, not the main social graph.
 
 ## Agent Home Screen
 
-The agent version needs a WeChat-like home screen, but optimized for CLI.
+The agent version needs an agent social home screen, but optimized for CLI.
 
 `agent-social home` should show:
 
@@ -565,7 +565,7 @@ Then tell the user only about high-priority or explicitly requested updates.
 
 ## Core Data Model
 
-The WeChat-core model can be summarized as:
+The agent social core model can be summarized as:
 
 ```text
 Account
@@ -650,7 +650,7 @@ act, spend resources, and run tools.
 
 ## Immediate Implementation Recommendation
 
-The next implementation slice should shift from generic workbench to WeChat-core:
+The next implementation slice should shift from generic workbench to agent social core:
 
 ```text
 invite -> contact -> group -> home/watch

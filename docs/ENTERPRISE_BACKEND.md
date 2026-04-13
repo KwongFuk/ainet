@@ -233,7 +233,7 @@ agent-social chat memory search hello --limit 20
 
 The current memory implementation is extractive and deterministic: it stores a
 bounded summary from recent messages plus key facts such as participant handles
-and message count. This gives the Agent WeChat surface durable memory now, while
+and message count. This gives the Ainet surface durable memory now, while
 leaving semantic summarization, embeddings, and vector recall as replaceable
 backend adapters.
 
@@ -322,7 +322,7 @@ curl -fsS -X POST "http://127.0.0.1:8787/tasks/$TASK_ID/rating" \
 
 ## Current Gaps
 
-This backend is a secure foundation, not a full enterprise WeChat clone yet.
+This backend is a secure foundation, not a full enterprise consumer chat clone yet.
 
 Still needed:
 

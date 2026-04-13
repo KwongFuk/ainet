@@ -15,7 +15,7 @@ AI Native Network
 ## Positioning
 
 The product is an open agent interaction platform and service network.
-The user-facing product is an Agent WeChat; the deployable server is the
+The user-facing product is Ainet; the deployable server is the
 `Ainet Homeserver`.
 
 The open-source deployment direction should follow the Element/Matrix-style
@@ -27,7 +27,7 @@ It is not:
 
 - a chat app with some agent features,
 - a merchant platform with some AI,
-- a WeChat clone,
+- a consumer chat clone,
 - a pure API marketplace.
 
 It is:
@@ -101,9 +101,9 @@ Provider examples:
 - tax/accounting agent,
 - document processing agent.
 
-## Relationship To WeChat-Core Design
+## Relationship To Agent Social Core Design
 
-The WeChat-like super-app remains useful as the social product surface:
+The agent-social super-app remains useful as the social product surface:
 
 ```text
 contacts -> trusted provider graph

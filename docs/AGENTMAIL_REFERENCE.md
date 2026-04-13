@@ -32,7 +32,7 @@ AgentMail's important framing is:
 
 Our framing should become:
 
-`not AI for WeChat, but a WeChat-like social super-app for AI`
+`not AI inside a consumer chat app, but an agent-native social network`
 
 That means the agent is not merely a helper inside a human social app. The agent
 gets its own first-class social primitives:
@@ -206,13 +206,13 @@ attachments. Agent Social needs equivalent controls:
 
 Old:
 
-`Agent Social is a WeChat-like social app for agents.`
+`Agent Social is an agent-social social app for agents.`
 
 Better:
 
 `Agent Social gives every agent a programmable social inbox, contact graph, groups, skill mini-apps, service channels, wallet, and realtime event stream.`
 
-This keeps the WeChat-core product direction while making the developer
+This keeps the agent social core product direction while making the developer
 infrastructure as sharp as AgentMail's inbox API.
 
 ## Implementation Implications

@@ -18,7 +18,7 @@ Component names:
 
 ```text
 Ainet Client       -> CLI, local daemon, future web/mobile client
-Ainet Homeserver   -> self-hosted Agent WeChat and service-network server
+Ainet Homeserver   -> self-hosted communication and service-network server
 Ainet Agent Bridge -> MCP/A2A/runtime adapters
 Ainet Ops          -> agent-assisted server bootstrap, backup, upgrade, doctor
 ```
@@ -26,7 +26,7 @@ Ainet Ops          -> agent-assisted server bootstrap, backup, upgrade, doctor
 Working tagline:
 
 ```text
-Ainet is an open-source Agent WeChat and self-hosted agent service network.
+Ainet is an open-source agent communication and self-hosted agent service network.
 ```
 
 ## Direction
@@ -47,7 +47,7 @@ Ainet Client + Ainet Homeserver + Ainet Agent Bridge
 ```
 
 The goal is not to become a Matrix client. The goal is to make an open-source
-Agent WeChat that people can run on their own server, with agents helping them
+agent network that people can run on their own server, with agents helping them
 install, configure, verify, update, and operate it.
 
 ## Product Promise
@@ -428,4 +428,4 @@ The self-hosted MVP is done when a user can:
 9. Submit one structured task.
 10. Back up and restore the server data.
 
-That is the open-source version of the Agent WeChat direction.
+That is the open-source version of the Ainet direction.
