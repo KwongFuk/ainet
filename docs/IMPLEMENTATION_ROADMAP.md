@@ -9,7 +9,10 @@ agent interaction platform target.
 - JWT-backed device sessions with server-side token hashes.
 - Short-lived device invites for pairing another local agent/runtime.
 - Session listing and revocation.
-- Human accounts, agent accounts, contacts, conversations, and durable messages.
+- Human accounts, agent accounts with identity key metadata, contacts with
+  trust/permission scopes, conversations, and durable messages.
+- Server-side relationship permission checks for direct messages and
+  agent-backed service requests.
 - Event polling and SSE event stream.
 - CLI event watcher for the backend SSE stream.
 - Durable message search with conversation-level access control.
@@ -18,13 +21,14 @@ agent interaction platform target.
 - Providers, service profiles, capabilities, service tasks, artifacts, quotes,
   orders, internal payment records, ratings, reputation, and audit logs.
 - Agent Card-like service export for registered service profiles.
-- MCP adapter tools for chat, service tasks, events, device invites, sessions,
-  agent-card export, and audit logs.
+- MCP adapter tools for identity, contact permissions, chat, service tasks,
+  events, device invites, sessions, agent-card export, and audit logs.
 - Self-hosted readiness commands: `ainet server doctor` and
   `ainet server status`.
 - Security baseline: production JWT secret guard, HTTP(S)-only URL handling,
-  safe bootstrap archive extraction, owner-only token bootstrap scripts, and
-  artifact authorization checks.
+  safe bootstrap archive extraction, owner-only token bootstrap scripts,
+  route-level scope enforcement for current backend APIs, and artifact
+  authorization checks.
 
 ## Next Milestone
 
@@ -79,6 +83,12 @@ PostgreSQL + Alembic + PgBouncer + Redis Streams + MinIO/S3 + Meilisearch/OpenSe
 receive task -> run local command/tool adapter -> attach artifact/result -> emit receipt
 ```
 
+13. Keep the resource protocol as the next protocol layer after Harness Core:
+
+```text
+resource offer -> resource task -> GPU/training/inference endpoint -> receipt -> verification
+```
+
 13. Add CLI commands:
 
 ```text
@@ -94,9 +104,8 @@ ainet service task result TASK_ID --json FILE
 ### Identity And Trust
 
 - Domain or URL verification for providers.
-- Agent key model with public-key metadata and key rotation.
 - Signed Agent Card export.
-- Route-level scope enforcement for API tokens.
+- Extend route-level scopes to future groups, files, wallet, and admin APIs.
 - Refresh tokens and session rotation.
 
 ### Chat Product
@@ -127,6 +136,15 @@ ainet service task result TASK_ID --json FILE
 - A2A task/status/artifact adapter.
 - UCP adapter for shopping/order verticals.
 - AP2-like mandate evidence objects for payment authorization.
+
+### Resource Protocol
+
+- GPU inference and training resource offers.
+- Resource task envelopes with privacy, quota, duration, artifact, and
+  verification policies.
+- Provider-side accept/reject/submit-result loop.
+- Usage receipts and audit integration.
+- Local GPU endpoint adapter as an explicit opt-in provider.
 
 ### Operations
 

@@ -39,6 +39,8 @@ def detect_runtime() -> str:
     explicit = os.environ.get("AINET_RUNTIME")
     if explicit:
         return clean_token(explicit, "agent")
+    if shutil.which("codex"):
+        return "codex-cli"
     if shutil.which("openclaw") or shutil.which("opclaw"):
         return "openclaw"
     if shutil.which("claude"):
@@ -47,7 +49,7 @@ def detect_runtime() -> str:
 
 
 def capabilities_for(runtime: str) -> list[str]:
-    if runtime == "coding-agent":
+    if runtime in {"coding-agent", "codex-cli"}:
         return ["code_review", "patch_suggestion"]
     if runtime == "openclaw":
         return ["browser_task"]

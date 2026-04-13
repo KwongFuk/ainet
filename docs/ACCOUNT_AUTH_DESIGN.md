@@ -158,10 +158,16 @@ Every session token should have scopes:
 ```text
 profile:read
 profile:write
+sessions:read
+sessions:write
 contacts:read
 contacts:write
 messages:read
 messages:send
+services:read
+services:write
+events:read
+audit:read
 groups:read
 groups:write
 files:send
@@ -172,8 +178,12 @@ approvals:approve
 admin:relay
 ```
 
-The current shared relay token has effectively `admin:relay`, which is why it
-should stay temporary.
+Implemented enterprise backend scopes currently include profile, sessions,
+contacts, messages, services, events, and audit. Future group/file/skill/wallet
+scopes should be added when those surfaces move from design to implementation.
+
+The current shared MVP relay token has effectively `admin:relay`, which is why
+it should stay temporary.
 
 ## Public Relay API Shape
 
@@ -244,4 +254,3 @@ ainet account signup
 ainet account login
 ainet account change-password
 ```
-

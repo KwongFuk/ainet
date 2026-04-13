@@ -78,12 +78,30 @@ class AgentCreateRequest(BaseModel):
     handle: str = Field(min_length=3, max_length=120, pattern=r"^[a-z0-9._-]+$")
     display_name: str | None = Field(default=None, max_length=120)
     runtime_type: str = Field(default="agent", max_length=80)
+    public_key: str | None = Field(default=None, max_length=12000)
+    key_id: str | None = Field(default=None, max_length=120)
 
 
 class AgentResponse(BaseModel):
     agent_id: str
     handle: str
+    display_name: str | None = None
     runtime_type: str
+    public_key: str | None = None
+    key_id: str | None = None
+    key_rotated_at: str | None = None
+    verification_status: str = "unverified"
+
+
+class AgentIdentityUpdateRequest(BaseModel):
+    public_key: str | None = Field(default=None, max_length=12000)
+    key_id: str | None = Field(default=None, max_length=120)
+
+
+class IdentityResponse(BaseModel):
+    user: MeResponse
+    agents: list[AgentResponse]
+    session_count: int
 
 
 class MessageRequest(BaseModel):
@@ -115,6 +133,17 @@ class AuditLogResponse(BaseModel):
 class ContactCreateRequest(BaseModel):
     handle: str = Field(min_length=3, max_length=120)
     label: str | None = Field(default=None, max_length=160)
+    contact_type: str = Field(default="agent", max_length=40)
+    trust_level: str = Field(default="known", max_length=40)
+    permissions: list[str] = Field(default_factory=lambda: ["dm"])
+
+
+class ContactUpdateRequest(BaseModel):
+    label: str | None = Field(default=None, max_length=160)
+    trust_level: str | None = Field(default=None, max_length=40)
+    permissions: list[str] | None = None
+    muted: bool | None = None
+    blocked: bool | None = None
 
 
 class ContactResponse(BaseModel):
@@ -122,7 +151,12 @@ class ContactResponse(BaseModel):
     agent_id: str
     handle: str
     label: str | None
+    contact_type: str
+    trust_level: str
+    permissions: list[str]
     status: str
+    muted: bool
+    blocked: bool
     created_at: str
 
 

@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import secrets
+from contextlib import asynccontextmanager
 from datetime import timedelta
 from datetime import datetime, timezone
 
@@ -43,6 +44,7 @@ from .models import (
 from .queue import EventBus
 from .schemas import (
     AgentCreateRequest,
+    AgentIdentityUpdateRequest,
     AgentResponse,
     AuditLogResponse,
     ArtifactCreateRequest,
@@ -50,11 +52,13 @@ from .schemas import (
     CapabilityInput,
     ContactCreateRequest,
     ContactResponse,
+    ContactUpdateRequest,
     ConversationCreateRequest,
     ConversationMemoryRequest,
     ConversationMemoryResponse,
     ConversationResponse,
     EventResponse,
+    IdentityResponse,
     InviteAcceptRequest,
     InviteCreateRequest,
     InviteResponse,
@@ -95,15 +99,40 @@ from .security import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SESSION_SCOPES = [
+LEGACY_FULL_SESSION_SCOPES = {
     "profile:read",
     "profile:write",
     "messages:read",
     "messages:send",
     "contacts:read",
     "contacts:write",
+}
+DEFAULT_SESSION_SCOPES = [
+    "profile:read",
+    "profile:write",
+    "sessions:read",
+    "sessions:write",
+    "messages:read",
+    "messages:send",
+    "contacts:read",
+    "contacts:write",
+    "services:read",
+    "services:write",
+    "events:read",
+    "audit:read",
 ]
 KNOWN_SESSION_SCOPES = set(DEFAULT_SESSION_SCOPES)
+KNOWN_CONTACT_PERMISSIONS = {
+    "dm",
+    "group_invite",
+    "service_request",
+    "artifact_read",
+    "artifact_write",
+    "memory_read",
+    "memory_write",
+    "requires_human_approval",
+}
+KNOWN_TRUST_LEVELS = {"unknown", "known", "trusted", "privileged", "blocked"}
 
 
 def as_utc(value: datetime) -> datetime:
@@ -118,6 +147,40 @@ def dump_json(value: dict) -> str:
 
 def parse_json(value: str) -> dict:
     return json.loads(value or "{}")
+
+
+def parse_json_list(value: str) -> list:
+    parsed = json.loads(value or "[]")
+    return parsed if isinstance(parsed, list) else []
+
+
+def normalize_contact_permissions(permissions: list[str] | None) -> list[str]:
+    if permissions is None:
+        permissions = ["dm"]
+    normalized: list[str] = []
+    for permission in permissions:
+        item = permission.strip().lower()
+        if not item:
+            continue
+        if item not in KNOWN_CONTACT_PERMISSIONS and not item.startswith("service:"):
+            raise HTTPException(status_code=400, detail=f"unsupported contact permission: {permission}")
+        if item not in normalized:
+            normalized.append(item)
+    return normalized
+
+
+def normalize_trust_level(trust_level: str) -> str:
+    normalized = trust_level.strip().lower()
+    if normalized not in KNOWN_TRUST_LEVELS:
+        raise HTTPException(status_code=400, detail=f"unsupported trust level: {trust_level}")
+    return normalized
+
+
+def effective_session_scopes(scopes_text: str) -> set[str]:
+    scopes = set(scopes_text.split())
+    if scopes == LEGACY_FULL_SESSION_SCOPES:
+        return set(DEFAULT_SESSION_SCOPES)
+    return scopes
 
 
 def contains_pattern(value: str) -> str:
@@ -137,6 +200,19 @@ def capability_response(capability: Capability) -> CapabilityInput:
         description=capability.description,
         input_schema=parse_json(capability.input_schema_json),
         output_schema=parse_json(capability.output_schema_json),
+    )
+
+
+def agent_response(agent: AgentAccount) -> AgentResponse:
+    return AgentResponse(
+        agent_id=agent.agent_id,
+        handle=agent.handle,
+        display_name=agent.display_name,
+        runtime_type=agent.runtime_type,
+        public_key=agent.public_key,
+        key_id=agent.key_id,
+        key_rotated_at=iso(agent.key_rotated_at),
+        verification_status=agent.verification_status,
     )
 
 
@@ -174,7 +250,12 @@ def contact_response(contact: Contact) -> ContactResponse:
         agent_id=contact.agent_id,
         handle=contact.handle_snapshot,
         label=contact.label,
+        contact_type=contact.contact_type,
+        trust_level=contact.trust_level,
+        permissions=parse_json_list(contact.permissions_json),
         status=contact.status,
+        muted=contact.muted,
+        blocked=contact.blocked,
         created_at=iso(contact.created_at) or "",
     )
 
@@ -299,6 +380,48 @@ def readable_conversation(db: Session, conversation_id: str, user: HumanAccount)
     return conversation
 
 
+def find_contact(db: Session, user: HumanAccount, contact_id_or_handle: str) -> Contact:
+    contact = db.scalar(
+        select(Contact)
+        .where(Contact.owner_user_id == user.user_id)
+        .where((Contact.contact_id == contact_id_or_handle) | (Contact.handle_snapshot == contact_id_or_handle))
+    )
+    if not contact:
+        raise HTTPException(status_code=404, detail="contact not found")
+    return contact
+
+
+def active_contact_for_agent(db: Session, user: HumanAccount, agent: AgentAccount) -> Contact | None:
+    return db.scalar(
+        select(Contact)
+        .where(Contact.owner_user_id == user.user_id)
+        .where(Contact.agent_id == agent.agent_id)
+        .where(Contact.status == "active")
+    )
+
+
+def require_contact_permission(
+    db: Session,
+    user: HumanAccount,
+    agent: AgentAccount,
+    permission: str,
+    *,
+    allow_self: bool = True,
+) -> Contact | None:
+    if allow_self and agent.owner_user_id == user.user_id:
+        return None
+    contact = active_contact_for_agent(db, user, agent)
+    if not contact:
+        raise HTTPException(status_code=403, detail=f"contact permission required: {permission}")
+    permissions = set(parse_json_list(contact.permissions_json))
+    trust_level = normalize_trust_level(contact.trust_level)
+    if contact.blocked or trust_level == "blocked":
+        raise HTTPException(status_code=403, detail="contact is blocked")
+    if permission not in permissions:
+        raise HTTPException(status_code=403, detail=f"contact does not allow {permission}")
+    return contact
+
+
 def get_or_create_conversation(
     db: Session,
     user: HumanAccount,
@@ -335,16 +458,17 @@ def get_or_create_conversation(
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="Ainet Enterprise Backend", version="0.1.0")
-    app.state.event_bus = EventBus(settings)
 
-    @app.on_event("startup")
-    def on_startup() -> None:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
         init_db()
+        try:
+            yield
+        finally:
+            await app.state.event_bus.close()
 
-    @app.on_event("shutdown")
-    async def on_shutdown() -> None:
-        await app.state.event_bus.close()
+    app = FastAPI(title="Ainet Enterprise Backend", version="0.1.0", lifespan=lifespan)
+    app.state.event_bus = EventBus(settings)
 
     @app.get("/health")
     def health() -> dict[str, bool]:
@@ -463,13 +587,23 @@ def create_app() -> FastAPI:
         user = db.get(HumanAccount, claims.get("sub"))
         if not user or user.disabled:
             raise HTTPException(status_code=401, detail="account disabled or missing")
+        user._ainet_session_scopes = effective_session_scopes(session.scopes)
         return user
+
+    def scoped_user(scope: str):
+        def dependency(user: HumanAccount = Depends(current_user)) -> HumanAccount:
+            scopes = set(getattr(user, "_ainet_session_scopes", set()))
+            if scope not in scopes:
+                raise HTTPException(status_code=403, detail=f"token scope required: {scope}")
+            return user
+
+        return dependency
 
     @app.post("/auth/invites", response_model=InviteResponse, status_code=status.HTTP_201_CREATED)
     async def create_invite(
         payload: InviteCreateRequest,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("sessions:write")),
     ) -> InviteResponse:
         if payload.invite_type != "device":
             raise HTTPException(status_code=400, detail="unsupported invite type")
@@ -545,7 +679,7 @@ def create_app() -> FastAPI:
         return response
 
     @app.get("/account/me", response_model=MeResponse)
-    def me(user: HumanAccount = Depends(current_user)) -> MeResponse:
+    def me(user: HumanAccount = Depends(scoped_user("profile:read"))) -> MeResponse:
         return MeResponse(
             user_id=user.user_id,
             email=user.email,
@@ -553,10 +687,34 @@ def create_app() -> FastAPI:
             email_verified=bool(user.email_verified_at),
         )
 
+    @app.get("/identity", response_model=IdentityResponse)
+    def identity(
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("profile:read")),
+    ) -> IdentityResponse:
+        agents = db.scalars(
+            select(AgentAccount).where(AgentAccount.owner_user_id == user.user_id).order_by(AgentAccount.created_at.asc())
+        ).all()
+        sessions = db.scalars(
+            select(DeviceSession)
+            .where(DeviceSession.user_id == user.user_id)
+            .where(DeviceSession.revoked_at.is_(None))
+        ).all()
+        return IdentityResponse(
+            user=MeResponse(
+                user_id=user.user_id,
+                email=user.email,
+                username=user.username,
+                email_verified=bool(user.email_verified_at),
+            ),
+            agents=[agent_response(agent) for agent in agents],
+            session_count=len(sessions),
+        )
+
     @app.get("/account/sessions", response_model=list[SessionResponse])
     def list_sessions(
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("sessions:read")),
         include_revoked: bool = False,
     ) -> list[SessionResponse]:
         stmt = select(DeviceSession).where(DeviceSession.user_id == user.user_id)
@@ -569,7 +727,7 @@ def create_app() -> FastAPI:
     async def revoke_session(
         session_id: str,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("sessions:write")),
     ) -> dict[str, bool]:
         session = db.get(DeviceSession, session_id)
         if not session or session.user_id != user.user_id:
@@ -585,7 +743,7 @@ def create_app() -> FastAPI:
     async def create_agent(
         payload: AgentCreateRequest,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("profile:write")),
     ) -> AgentResponse:
         existing = db.scalar(select(AgentAccount).where(AgentAccount.handle == payload.handle))
         if existing:
@@ -595,18 +753,59 @@ def create_app() -> FastAPI:
             handle=payload.handle,
             display_name=payload.display_name,
             runtime_type=payload.runtime_type,
+            public_key=payload.public_key,
+            key_id=payload.key_id,
+            key_rotated_at=utc_now() if payload.public_key or payload.key_id else None,
         )
         db.add(agent)
         db.commit()
         db.refresh(agent)
         await app.state.event_bus.publish(db, "agent.created", {"agent_id": agent.agent_id, "handle": agent.handle}, user.user_id)
-        return AgentResponse(agent_id=agent.agent_id, handle=agent.handle, runtime_type=agent.runtime_type)
+        return agent_response(agent)
+
+    @app.get("/agents", response_model=list[AgentResponse])
+    def list_agents(
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("profile:read")),
+    ) -> list[AgentResponse]:
+        agents = db.scalars(
+            select(AgentAccount).where(AgentAccount.owner_user_id == user.user_id).order_by(AgentAccount.created_at.asc())
+        ).all()
+        return [agent_response(agent) for agent in agents]
+
+    @app.patch("/agents/{agent_id}/identity", response_model=AgentResponse)
+    async def update_agent_identity(
+        agent_id: str,
+        payload: AgentIdentityUpdateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("profile:write")),
+    ) -> AgentResponse:
+        agent = db.get(AgentAccount, agent_id)
+        if not agent or agent.owner_user_id != user.user_id:
+            raise HTTPException(status_code=404, detail="agent not found for this account")
+        if payload.public_key is not None:
+            agent.public_key = payload.public_key
+            agent.key_rotated_at = utc_now()
+        if payload.key_id is not None:
+            agent.key_id = payload.key_id
+            if agent.key_rotated_at is None:
+                agent.key_rotated_at = utc_now()
+        audit(db, user, "agent_identity.update", "agent", agent.agent_id, {"key_id": agent.key_id})
+        db.commit()
+        db.refresh(agent)
+        await app.state.event_bus.publish(
+            db,
+            "agent_identity.updated",
+            {"agent_id": agent.agent_id, "handle": agent.handle, "key_id": agent.key_id},
+            user.user_id,
+        )
+        return agent_response(agent)
 
     @app.post("/contacts", response_model=ContactResponse, status_code=status.HTTP_201_CREATED)
     async def create_contact(
         payload: ContactCreateRequest,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("contacts:write")),
     ) -> ContactResponse:
         agent = db.scalar(select(AgentAccount).where(AgentAccount.handle == payload.handle))
         if not agent:
@@ -616,6 +815,10 @@ def create_app() -> FastAPI:
         )
         if contact:
             contact.label = payload.label or contact.label
+            contact.contact_type = payload.contact_type
+            contact.trust_level = normalize_trust_level(payload.trust_level)
+            contact.permissions_json = json.dumps(normalize_contact_permissions(payload.permissions), sort_keys=True)
+            contact.blocked = False
             contact.status = "active"
         else:
             contact = Contact(
@@ -623,16 +826,31 @@ def create_app() -> FastAPI:
                 agent_id=agent.agent_id,
                 handle_snapshot=agent.handle,
                 label=payload.label,
+                contact_type=payload.contact_type,
+                trust_level=normalize_trust_level(payload.trust_level),
+                permissions_json=json.dumps(normalize_contact_permissions(payload.permissions), sort_keys=True),
             )
             db.add(contact)
         db.flush()
-        audit(db, user, "contact.create", "contact", contact.contact_id, {"handle": agent.handle})
+        audit(
+            db,
+            user,
+            "contact.create",
+            "contact",
+            contact.contact_id,
+            {"handle": agent.handle, "permissions": parse_json_list(contact.permissions_json), "trust_level": contact.trust_level},
+        )
         db.commit()
         db.refresh(contact)
         await app.state.event_bus.publish(
             db,
             "contact.created",
-            {"contact_id": contact.contact_id, "handle": contact.handle_snapshot},
+            {
+                "contact_id": contact.contact_id,
+                "handle": contact.handle_snapshot,
+                "permissions": parse_json_list(contact.permissions_json),
+                "trust_level": contact.trust_level,
+            },
             user.user_id,
         )
         return contact_response(contact)
@@ -640,7 +858,7 @@ def create_app() -> FastAPI:
     @app.get("/contacts", response_model=list[ContactResponse])
     def list_contacts(
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("contacts:read")),
         limit: int = 100,
     ) -> list[ContactResponse]:
         contacts = db.scalars(
@@ -652,15 +870,76 @@ def create_app() -> FastAPI:
         ).all()
         return [contact_response(contact) for contact in contacts]
 
+    @app.get("/contacts/{contact_id_or_handle}", response_model=ContactResponse)
+    def get_contact(
+        contact_id_or_handle: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("contacts:read")),
+    ) -> ContactResponse:
+        return contact_response(find_contact(db, user, contact_id_or_handle))
+
+    @app.patch("/contacts/{contact_id_or_handle}", response_model=ContactResponse)
+    async def update_contact(
+        contact_id_or_handle: str,
+        payload: ContactUpdateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("contacts:write")),
+    ) -> ContactResponse:
+        contact = find_contact(db, user, contact_id_or_handle)
+        if payload.label is not None:
+            contact.label = payload.label
+        if payload.trust_level is not None:
+            contact.trust_level = normalize_trust_level(payload.trust_level)
+        if payload.permissions is not None:
+            contact.permissions_json = json.dumps(normalize_contact_permissions(payload.permissions), sort_keys=True)
+        if payload.muted is not None:
+            contact.muted = payload.muted
+        if payload.blocked is not None:
+            contact.blocked = payload.blocked
+            if payload.blocked:
+                contact.trust_level = "blocked"
+        db.flush()
+        audit(
+            db,
+            user,
+            "contact.update",
+            "contact",
+            contact.contact_id,
+            {
+                "handle": contact.handle_snapshot,
+                "permissions": parse_json_list(contact.permissions_json),
+                "trust_level": contact.trust_level,
+                "muted": contact.muted,
+                "blocked": contact.blocked,
+            },
+        )
+        db.commit()
+        db.refresh(contact)
+        await app.state.event_bus.publish(
+            db,
+            "contact.updated",
+            {
+                "contact_id": contact.contact_id,
+                "handle": contact.handle_snapshot,
+                "permissions": parse_json_list(contact.permissions_json),
+                "trust_level": contact.trust_level,
+                "muted": contact.muted,
+                "blocked": contact.blocked,
+            },
+            user.user_id,
+        )
+        return contact_response(contact)
+
     @app.post("/conversations", response_model=ConversationResponse, status_code=status.HTTP_201_CREATED)
     def create_conversation(
         payload: ConversationCreateRequest,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("messages:send")),
     ) -> ConversationResponse:
         target_agent = db.scalar(select(AgentAccount).where(AgentAccount.handle == payload.target_handle))
         if not target_agent:
             raise HTTPException(status_code=404, detail="target handle not found")
+        require_contact_permission(db, user, target_agent, "dm")
         conversation = get_or_create_conversation(db, user, target_agent, subject=payload.subject)
         db.commit()
         db.refresh(conversation)
@@ -669,7 +948,7 @@ def create_app() -> FastAPI:
     @app.get("/conversations", response_model=list[ConversationResponse])
     def list_conversations(
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("messages:read")),
         limit: int = 100,
     ) -> list[ConversationResponse]:
         conversations = db.scalars(
@@ -684,7 +963,7 @@ def create_app() -> FastAPI:
     def list_messages(
         conversation_id: str,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("messages:read")),
         limit: int = 100,
     ) -> list[MessageResponse]:
         conversation = readable_conversation(db, conversation_id, user)
@@ -700,7 +979,7 @@ def create_app() -> FastAPI:
     def search_messages(
         query: str,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("messages:read")),
         conversation_id: str | None = None,
         limit: int = 50,
     ) -> list[MessageResponse]:
@@ -730,7 +1009,7 @@ def create_app() -> FastAPI:
     def get_conversation_memory(
         conversation_id: str,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("messages:read")),
     ) -> ConversationMemoryResponse | None:
         readable_conversation(db, conversation_id, user)
         memory = db.scalar(
@@ -745,7 +1024,7 @@ def create_app() -> FastAPI:
         conversation_id: str,
         payload: ConversationMemoryRequest,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("messages:send")),
     ) -> ConversationMemoryResponse:
         readable_conversation(db, conversation_id, user)
         memory = db.scalar(
@@ -776,7 +1055,7 @@ def create_app() -> FastAPI:
     async def refresh_conversation_memory(
         conversation_id: str,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("messages:send")),
         limit: int = 50,
     ) -> ConversationMemoryResponse:
         conversation = readable_conversation(db, conversation_id, user)
@@ -821,7 +1100,7 @@ def create_app() -> FastAPI:
     def search_memory(
         query: str,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("messages:read")),
         limit: int = 50,
     ) -> list[ConversationMemoryResponse]:
         if len(query.strip()) < 2:
@@ -844,11 +1123,12 @@ def create_app() -> FastAPI:
     async def send_message(
         payload: MessageRequest,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("messages:send")),
     ) -> EventResponse:
         target_agent = db.scalar(select(AgentAccount).where(AgentAccount.handle == payload.to_handle))
         if not target_agent:
             raise HTTPException(status_code=404, detail="target handle not found")
+        require_contact_permission(db, user, target_agent, "dm")
         from_handle = user.username
         if payload.from_agent_id:
             from_agent = db.get(AgentAccount, payload.from_agent_id)
@@ -910,7 +1190,7 @@ def create_app() -> FastAPI:
     async def create_provider(
         payload: ProviderCreateRequest,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("services:write")),
     ) -> ProviderResponse:
         if payload.agent_id:
             agent = db.get(AgentAccount, payload.agent_id)
@@ -946,7 +1226,7 @@ def create_app() -> FastAPI:
     async def create_service_profile(
         payload: ServiceProfileCreateRequest,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("services:write")),
     ) -> ServiceProfileResponse:
         provider = db.get(Provider, payload.provider_id)
         if not provider or provider.owner_user_id != user.user_id:
@@ -989,7 +1269,7 @@ def create_app() -> FastAPI:
     @app.get("/service-profiles", response_model=list[ServiceProfileResponse])
     def search_service_profiles(
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("services:read")),
         query: str | None = None,
         category: str | None = None,
         capability: str | None = None,
@@ -1013,7 +1293,7 @@ def create_app() -> FastAPI:
     def service_agent_card(
         service_id: str,
         db: Session = Depends(get_db),
-        _user: HumanAccount = Depends(current_user),
+        _user: HumanAccount = Depends(scoped_user("services:read")),
     ) -> dict:
         service = db.get(ServiceProfile, service_id)
         if not service or service.status != "active":
@@ -1034,6 +1314,8 @@ def create_app() -> FastAPI:
                 "agent_id": agent.agent_id,
                 "handle": agent.handle,
                 "runtime_type": agent.runtime_type,
+                "key_id": agent.key_id,
+                "verification_status": agent.verification_status,
             }
             if agent
             else None,
@@ -1055,7 +1337,7 @@ def create_app() -> FastAPI:
     async def create_task(
         payload: TaskCreateRequest,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("services:write")),
     ) -> TaskResponse:
         service = db.get(ServiceProfile, payload.service_id)
         if not service or service.status != "active":
@@ -1064,6 +1346,11 @@ def create_app() -> FastAPI:
             capability = db.get(Capability, payload.capability_id)
             if not capability or capability.service_id != service.service_id:
                 raise HTTPException(status_code=404, detail="capability not found for this service")
+        provider = db.get(Provider, service.provider_id)
+        if provider and provider.agent_id:
+            provider_agent = db.get(AgentAccount, provider.agent_id)
+            if provider_agent:
+                require_contact_permission(db, user, provider_agent, "service_request")
         task = ServiceTask(
             requester_user_id=user.user_id,
             service_id=service.service_id,
@@ -1088,7 +1375,7 @@ def create_app() -> FastAPI:
     def get_task(
         task_id: str,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("services:read")),
     ) -> TaskResponse:
         task = db.get(ServiceTask, task_id)
         if not task:
@@ -1102,7 +1389,7 @@ def create_app() -> FastAPI:
     async def create_artifact(
         payload: ArtifactCreateRequest,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("services:write")),
     ) -> ArtifactResponse:
         if payload.task_id:
             task = db.get(ServiceTask, payload.task_id)
@@ -1148,7 +1435,7 @@ def create_app() -> FastAPI:
         task_id: str,
         payload: QuoteCreateRequest,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("services:write")),
     ) -> QuoteResponse:
         task = db.get(ServiceTask, task_id)
         if not task:
@@ -1190,7 +1477,7 @@ def create_app() -> FastAPI:
         quote_id: str,
         payload: QuoteAcceptRequest,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("services:write")),
     ) -> OrderResponse:
         quote = db.get(Quote, quote_id)
         if not quote:
@@ -1251,7 +1538,7 @@ def create_app() -> FastAPI:
     @app.get("/orders", response_model=list[OrderResponse])
     def list_orders(
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("services:read")),
         limit: int = 100,
     ) -> list[OrderResponse]:
         provider_ids = [
@@ -1268,7 +1555,7 @@ def create_app() -> FastAPI:
     @app.get("/payments", response_model=list[PaymentResponse])
     def list_payments(
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("services:read")),
         limit: int = 100,
     ) -> list[PaymentResponse]:
         provider_ids = [
@@ -1296,7 +1583,7 @@ def create_app() -> FastAPI:
     def provider_reputation(
         provider_id: str,
         db: Session = Depends(get_db),
-        _user: HumanAccount = Depends(current_user),
+        _user: HumanAccount = Depends(scoped_user("services:read")),
     ) -> ProviderReputationResponse:
         provider = db.get(Provider, provider_id)
         if not provider:
@@ -1320,7 +1607,7 @@ def create_app() -> FastAPI:
         task_id: str,
         payload: TaskResultRequest,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("services:write")),
     ) -> TaskResponse:
         task = db.get(ServiceTask, task_id)
         if not task:
@@ -1346,7 +1633,7 @@ def create_app() -> FastAPI:
         task_id: str,
         payload: RatingCreateRequest,
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("services:write")),
     ) -> RatingResponse:
         task = db.get(ServiceTask, task_id)
         if not task:
@@ -1382,7 +1669,7 @@ def create_app() -> FastAPI:
     @app.get("/events", response_model=list[EventResponse])
     def events(
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("events:read")),
         after_id: int = 0,
         limit: int = 50,
     ) -> list[EventResponse]:
@@ -1398,7 +1685,7 @@ def create_app() -> FastAPI:
     @app.get("/events/stream")
     def event_stream(
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("events:read")),
         after_id: int = 0,
         poll_seconds: float = 2.0,
     ) -> StreamingResponse:
@@ -1427,7 +1714,7 @@ def create_app() -> FastAPI:
     @app.get("/audit", response_model=list[AuditLogResponse])
     def audit_logs(
         db: Session = Depends(get_db),
-        user: HumanAccount = Depends(current_user),
+        user: HumanAccount = Depends(scoped_user("audit:read")),
         limit: int = 100,
     ) -> list[AuditLogResponse]:
         rows = db.scalars(

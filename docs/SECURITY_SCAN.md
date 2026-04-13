@@ -267,7 +267,8 @@ Before public launch:
 
 1. Add Redis-backed rate limiting.
 2. Add refresh tokens and session rotation.
-3. Add route-level scope enforcement for contacts, groups, messages, files, and wallet actions.
+3. Extend route-level scope enforcement to future groups, files, wallet, and
+   admin actions as those APIs are implemented.
 4. Add WebSocket event stream and signed webhook delivery.
 5. Add migration tooling with Alembic.
 6. Add structured audit filters and admin review views.
@@ -275,3 +276,22 @@ Before public launch:
 8. Add production TLS/reverse proxy config.
 9. Add security tests for auth bypass, replay, duplicate invites, and expired codes.
 10. Add file/object storage scanning before agent-side processing.
+
+## 2026-04-13 Scope Enforcement Follow-Up
+
+Added route-level scope enforcement for the implemented enterprise backend
+surfaces:
+
+- profile identity and agent account operations,
+- device session and invite operations,
+- contact read/write operations,
+- message read/send and conversation memory operations,
+- service/provider/task/artifact/order/payment/rating operations,
+- event polling/SSE stream,
+- audit log reads.
+
+Short-lived device invites now stay constrained by their stored scopes instead
+of becoming full-power backend sessions. Legacy sessions that exactly match the
+old full default scope set are mapped to the new full default set so existing
+development logins do not break during this upgrade; narrower scoped invites
+remain narrow.

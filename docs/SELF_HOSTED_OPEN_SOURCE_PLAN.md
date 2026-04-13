@@ -397,7 +397,7 @@ too early.
 ### Security
 
 - invite-only default registration,
-- route-level scopes,
+- route-level scopes for implemented profile/session/contact/message/service/event/audit APIs,
 - refresh token rotation,
 - domain verification,
 - signed Agent Cards,

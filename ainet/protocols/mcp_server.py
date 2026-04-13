@@ -117,6 +117,12 @@ def get_me() -> dict[str, Any]:
 
 
 @mcp.tool()
+def get_identity() -> dict[str, Any]:
+    """Return the authenticated user's stable Ainet identity and owned agent identities."""
+    return {"identity": client().request("GET", "/identity")}
+
+
+@mcp.tool()
 def list_sessions(include_revoked: bool = False) -> dict[str, Any]:
     """List device sessions for the authenticated account."""
     sessions = client().request("GET", "/account/sessions", query={"include_revoked": include_revoked})
@@ -174,9 +180,23 @@ def send_message(to_handle: str, body: str, conversation_id: str | None = None) 
 
 
 @mcp.tool()
-def add_contact(handle: str, label: str | None = None) -> dict[str, Any]:
-    """Add an agent handle to the authenticated account's contact list."""
-    contact = client().request("POST", "/contacts", {"handle": handle, "label": label})
+def add_contact(
+    handle: str,
+    label: str | None = None,
+    permissions: list[str] | None = None,
+    trust_level: str = "known",
+) -> dict[str, Any]:
+    """Add an agent handle to contacts with explicit relationship permissions."""
+    contact = client().request(
+        "POST",
+        "/contacts",
+        {
+            "handle": handle,
+            "label": label,
+            "permissions": permissions or ["dm"],
+            "trust_level": trust_level,
+        },
+    )
     return {"contact": contact}
 
 
@@ -185,6 +205,35 @@ def list_contacts(limit: int = 100) -> dict[str, Any]:
     """List saved agent contacts for the authenticated account."""
     contacts = client().request("GET", "/contacts", query={"limit": max(1, min(limit, 200))})
     return {"contacts": contacts}
+
+
+@mcp.tool()
+def get_contact(contact: str) -> dict[str, Any]:
+    """Return one contact by contact id or handle."""
+    row = client().request("GET", f"/contacts/{urllib.parse.quote(contact)}")
+    return {"contact": row}
+
+
+@mcp.tool()
+def set_contact_permissions(contact: str, permissions: list[str]) -> dict[str, Any]:
+    """Replace the permission set for a contact by contact id or handle."""
+    row = client().request(
+        "PATCH",
+        f"/contacts/{urllib.parse.quote(contact)}",
+        {"permissions": permissions},
+    )
+    return {"contact": row}
+
+
+@mcp.tool()
+def set_contact_trust(contact: str, trust_level: str) -> dict[str, Any]:
+    """Set the trust level for a contact by contact id or handle."""
+    row = client().request(
+        "PATCH",
+        f"/contacts/{urllib.parse.quote(contact)}",
+        {"trust_level": trust_level},
+    )
+    return {"contact": row}
 
 
 @mcp.tool()
@@ -413,15 +462,38 @@ def list_audit_logs(limit: int = 100) -> dict[str, Any]:
 
 
 @mcp.tool()
-def chat_add_contact(handle: str, label: str | None = None) -> dict[str, Any]:
-    """Chat layer: add an agent handle to contacts."""
-    return add_contact(handle, label)
+def chat_add_contact(
+    handle: str,
+    label: str | None = None,
+    permissions: list[str] | None = None,
+    trust_level: str = "known",
+) -> dict[str, Any]:
+    """Chat layer: add an agent handle to contacts with explicit permissions."""
+    return add_contact(handle, label, permissions, trust_level)
 
 
 @mcp.tool()
 def chat_list_contacts(limit: int = 100) -> dict[str, Any]:
     """Chat layer: list saved contacts."""
     return list_contacts(limit)
+
+
+@mcp.tool()
+def chat_get_contact(contact: str) -> dict[str, Any]:
+    """Chat layer: show one contact by id or handle."""
+    return get_contact(contact)
+
+
+@mcp.tool()
+def chat_set_contact_permissions(contact: str, permissions: list[str]) -> dict[str, Any]:
+    """Chat layer: replace contact permissions."""
+    return set_contact_permissions(contact, permissions)
+
+
+@mcp.tool()
+def chat_set_contact_trust(contact: str, trust_level: str) -> dict[str, Any]:
+    """Chat layer: set contact trust level."""
+    return set_contact_trust(contact, trust_level)
 
 
 @mcp.tool()

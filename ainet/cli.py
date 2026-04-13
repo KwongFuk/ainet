@@ -23,6 +23,32 @@ DEFAULT_HOME = Path(os.environ.get("AINET_HOME", "~/.ainet")).expanduser()
 DEFAULT_RELAY_URL = os.environ.get("AINET_RELAY_URL")
 DEFAULT_RELAY_TOKEN = os.environ.get("AINET_RELAY_TOKEN")
 DEFAULT_API_URL = os.environ.get("AINET_API_URL", "http://127.0.0.1:8787")
+RUNTIME_ADAPTER_DEFAULTS = {
+    "codex": {
+        "runtime": "codex-cli",
+        "profile": "codex",
+        "handle_suffix": "codex",
+        "capabilities": ["code_review", "patch_suggestion", "repo_assistant"],
+    },
+    "codex-cli": {
+        "runtime": "codex-cli",
+        "profile": "codex",
+        "handle_suffix": "codex",
+        "capabilities": ["code_review", "patch_suggestion", "repo_assistant"],
+    },
+    "openclaw": {
+        "runtime": "openclaw",
+        "profile": "openclaw",
+        "handle_suffix": "openclaw",
+        "capabilities": ["browser_task", "computer_use"],
+    },
+    "opclaw": {
+        "runtime": "openclaw",
+        "profile": "openclaw",
+        "handle_suffix": "openclaw",
+        "capabilities": ["browser_task", "computer_use"],
+    },
+}
 
 
 def require_http_url(url: str, label: str) -> str:
@@ -237,6 +263,12 @@ def host_name() -> str:
         return "ainet-cli"
 
 
+def default_adapter_handle(suffix: str) -> str:
+    user = "".join(ch if ch.isalnum() else "-" for ch in getpass.getuser().lower()).strip("-") or "user"
+    host = "".join(ch if ch.isalnum() else "-" for ch in host_name().split(".")[0].lower()).strip("-") or "host"
+    return normalize_handle(f"{user}-{host}.{suffix}")
+
+
 def normalize_handle(handle: str) -> str:
     normalized = handle.strip().lower()
     if not normalized:
@@ -348,6 +380,35 @@ def cmd_auth_status(args: argparse.Namespace, paths: Paths) -> int:
         me = api_json("GET", api_url, "/account/me", token=token)
         print(f"server_user: {me.get('username')} <{me.get('email')}>")
         print(f"email_verified: {me.get('email_verified')}")
+    return 0
+
+
+def print_agent_identity(agent: dict[str, Any]) -> None:
+    key = agent.get("key_id") or "-"
+    verified = agent.get("verification_status") or "unverified"
+    display_name = f" name={agent['display_name']}" if agent.get("display_name") else ""
+    print(
+        f"{agent['handle']} id={agent['agent_id']} runtime={agent['runtime_type']}"
+        f"{display_name} key_id={key} verification={verified}"
+    )
+
+
+def cmd_identity_show(_args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    identity = api_json("GET", api_url, "/identity", token=token)
+    user = identity.get("user", {})
+    print(f"user: {user.get('username')} <{user.get('email')}> id={user.get('user_id')}")
+    print(f"email_verified: {user.get('email_verified')}")
+    print(f"active_sessions: {identity.get('session_count')}")
+    agents = identity.get("agents") or []
+    if not agents:
+        print("agents: none")
+        return 0
+    print("agents:")
+    for agent in agents:
+        print("  ", end="")
+        print_agent_identity(agent)
     return 0
 
 
@@ -747,10 +808,13 @@ def cmd_server_bootstrap(_args: argparse.Namespace, _paths: Paths) -> int:
 def cmd_agent_create(args: argparse.Namespace, paths: Paths) -> int:
     config = load_config(paths)
     api_url, token = require_auth(config)
+    public_key = read_text_arg(args.public_key, args.public_key_file, "public key")
     payload = {
         "handle": normalize_handle(args.handle),
         "display_name": args.display_name,
         "runtime_type": args.runtime_type,
+        "public_key": public_key,
+        "key_id": args.key_id,
     }
     response = api_json("POST", api_url, "/agents", payload, token=token)
     profile_name = args.profile or config.get("active_profile") or response["handle"]
@@ -771,6 +835,205 @@ def cmd_agent_create(args: argparse.Namespace, paths: Paths) -> int:
     print(f"created backend agent `{response['handle']}`")
     print(f"agent_id: {response['agent_id']}")
     print(f"profile: {profile_name}")
+    return 0
+
+
+def adapter_defaults(runtime: str) -> dict[str, Any]:
+    key = runtime.strip().lower()
+    if key not in RUNTIME_ADAPTER_DEFAULTS:
+        supported = ", ".join(sorted(RUNTIME_ADAPTER_DEFAULTS))
+        raise SystemExit(f"unsupported adapter runtime: {runtime}. Supported: {supported}")
+    return RUNTIME_ADAPTER_DEFAULTS[key]
+
+
+def cmd_adapter_install(args: argparse.Namespace, paths: Paths) -> int:
+    defaults = adapter_defaults(args.runtime)
+    config = load_config(paths)
+    profile_name = args.profile or defaults["profile"]
+    handle = normalize_handle(args.handle or default_adapter_handle(defaults["handle_suffix"]))
+    capabilities = sorted(set(args.capability or defaults["capabilities"]))
+    profile = config["profiles"].get(profile_name, {})
+    profile.update(
+        {
+            "profile": profile_name,
+            "handle": handle,
+            "runtime": defaults["runtime"],
+            "owner": args.owner,
+            "capabilities": capabilities,
+            "account_id": profile.get("account_id"),
+            "installed_at": utc_now(),
+            "adapter_mode": "mcp",
+            "adapter_runtime": args.runtime,
+            "communication_only": True,
+            "provides_model": False,
+        }
+    )
+    config["profiles"][profile_name] = profile
+    config["active_profile"] = profile_name
+    if paths.relay_url:
+        config["relay_url"] = paths.relay_url
+    if paths.relay_token:
+        config["relay_token"] = paths.relay_token
+    save_config(paths, config)
+
+    print(f"installed {args.runtime} adapter profile `{profile_name}`")
+    print(f"handle: {handle}")
+    print(f"runtime: {defaults['runtime']}")
+    print(f"capabilities: {', '.join(capabilities)}")
+    print("scope: communication only; training/inference resources belong to the later resource protocol")
+
+    if args.register_relay:
+        cmd_register(argparse.Namespace(profile=profile_name), paths)
+
+    if args.backend_agent:
+        api_url, token = require_auth(config)
+        try:
+            response = api_json(
+                "POST",
+                api_url,
+                "/agents",
+                {
+                    "handle": handle,
+                    "display_name": args.display_name,
+                    "runtime_type": defaults["runtime"],
+                },
+                token=token,
+            )
+        except SystemExit as exc:
+            if "409" not in str(exc):
+                raise
+            print(f"backend agent already exists for handle: {handle}")
+        else:
+            config = load_config(paths)
+            profile = config["profiles"].get(profile_name, {})
+            profile.update(
+                {
+                    "agent_id": response["agent_id"],
+                    "backend_api_url": api_url,
+                    "backend_created_at": utc_now(),
+                }
+            )
+            config["profiles"][profile_name] = profile
+            save_config(paths, config)
+            print(f"backend agent_id: {response['agent_id']}")
+    return 0
+
+
+def read_text_arg(value: str | None, path: str | None, label: str) -> str | None:
+    if value and path:
+        raise SystemExit(f"pass either --{label.replace(' ', '-')} or --{label.replace(' ', '-')}-file, not both")
+    if value:
+        return value
+    if path:
+        return Path(path).expanduser().read_text(encoding="utf-8")
+    return None
+
+
+def cmd_agent_identity_update(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    public_key = read_text_arg(args.public_key, args.public_key_file, "public key")
+    payload = {key: value for key, value in {"public_key": public_key, "key_id": args.key_id}.items() if value is not None}
+    if not payload:
+        raise SystemExit("nothing to update; pass --public-key, --public-key-file, or --key-id")
+    agent = api_json("PATCH", api_url, f"/agents/{args.agent_id}/identity", payload, token=token)
+    print_agent_identity(agent)
+    return 0
+
+
+def print_contact(contact: dict[str, Any]) -> None:
+    permissions = ",".join(contact.get("permissions") or []) or "-"
+    flags = []
+    if contact.get("muted"):
+        flags.append("muted")
+    if contact.get("blocked"):
+        flags.append("blocked")
+    flag_suffix = f" flags={','.join(flags)}" if flags else ""
+    label = f" label={contact['label']}" if contact.get("label") else ""
+    print(
+        f"{contact['handle']} id={contact['contact_id']} type={contact.get('contact_type')} "
+        f"trust={contact.get('trust_level')} permissions={permissions}{label}{flag_suffix}"
+    )
+
+
+def cmd_contact_add(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    contact = api_json(
+        "POST",
+        api_url,
+        "/contacts",
+        {
+            "handle": normalize_handle(args.handle),
+            "label": args.label,
+            "contact_type": args.contact_type,
+            "trust_level": args.trust_level,
+            "permissions": args.permission or ["dm"],
+        },
+        token=token,
+    )
+    print_contact(contact)
+    return 0
+
+
+def cmd_contact_list(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    contacts = api_json("GET", api_url, f"/contacts?{urllib.parse.urlencode({'limit': args.limit})}", token=token)
+    if not contacts:
+        print("no contacts")
+        return 0
+    for contact in contacts:
+        print_contact(contact)
+    return 0
+
+
+def cmd_contact_show(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    contact = api_json("GET", api_url, f"/contacts/{urllib.parse.quote(args.contact)}", token=token)
+    print_contact(contact)
+    return 0
+
+
+def cmd_contact_permissions(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    contact = api_json("GET", api_url, f"/contacts/{urllib.parse.quote(args.contact)}", token=token)
+    permissions = set(contact.get("permissions") or [])
+    changed = False
+    if args.set_permission is not None:
+        permissions = set(args.set_permission)
+        changed = True
+    for permission in args.add_permission or []:
+        permissions.add(permission)
+        changed = True
+    for permission in args.remove_permission or []:
+        permissions.discard(permission)
+        changed = True
+    if changed:
+        contact = api_json(
+            "PATCH",
+            api_url,
+            f"/contacts/{urllib.parse.quote(args.contact)}",
+            {"permissions": sorted(permissions)},
+            token=token,
+        )
+    print_contact(contact)
+    return 0
+
+
+def cmd_contact_trust(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    contact = api_json(
+        "PATCH",
+        api_url,
+        f"/contacts/{urllib.parse.quote(args.contact)}",
+        {"trust_level": args.trust_level},
+        token=token,
+    )
+    print_contact(contact)
     return 0
 
 
@@ -1326,6 +1589,11 @@ def build_parser() -> argparse.ArgumentParser:
     auth_logout = auth_sub.add_parser("logout", help="remove the local access token")
     auth_logout.set_defaults(func=cmd_auth_logout)
 
+    identity = sub.add_parser("identity", help="show persistent Ainet identity")
+    identity_sub = identity.add_subparsers(dest="identity_command", required=True)
+    identity_show = identity_sub.add_parser("show", help="show current user and agent identities")
+    identity_show.set_defaults(func=cmd_identity_show)
+
     mcp = sub.add_parser("mcp", help="MCP adapter operations")
     mcp_sub = mcp.add_subparsers(dest="mcp_command", required=True)
     mcp_install = mcp_sub.add_parser("install", help="write MCP client configuration for Ainet")
@@ -1337,6 +1605,19 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_install.add_argument("--arg", action="append", help="argument to pass to the MCP server command")
     mcp_install.add_argument("--require-auth", action="store_true", help="fail if auth login has not been saved")
     mcp_install.set_defaults(func=cmd_mcp_install)
+
+    adapter = sub.add_parser("adapter", help="external agent runtime adapter profiles")
+    adapter_sub = adapter.add_subparsers(dest="adapter_command", required=True)
+    adapter_install = adapter_sub.add_parser("install", help="install a communication-only runtime adapter profile")
+    adapter_install.add_argument("runtime", choices=sorted(RUNTIME_ADAPTER_DEFAULTS), help="external runtime to connect")
+    adapter_install.add_argument("--profile", help="local profile name; defaults to runtime name")
+    adapter_install.add_argument("--handle", help="Ainet agent handle; defaults to user-host.RUNTIME")
+    adapter_install.add_argument("--owner", help="optional human owner label")
+    adapter_install.add_argument("--display-name", help="optional backend display name")
+    adapter_install.add_argument("--capability", action="append", help="capability to advertise; defaults by runtime")
+    adapter_install.add_argument("--register-relay", action="store_true", help="register this profile with the local/LAN relay")
+    adapter_install.add_argument("--backend-agent", action="store_true", help="also create a backend agent for the saved auth account")
+    adapter_install.set_defaults(func=cmd_adapter_install)
 
     server = sub.add_parser("server", help="self-hosted server operations")
     server_sub = server.add_subparsers(dest="server_command", required=True)
@@ -1389,7 +1670,42 @@ def build_parser() -> argparse.ArgumentParser:
     agent_create.add_argument("--display-name", help="optional display name")
     agent_create.add_argument("--runtime-type", default="agent-cli", help="runtime type, e.g. coding-agent")
     agent_create.add_argument("--profile", help="local profile name to update")
+    agent_create.add_argument("--public-key", help="public key metadata for future signed agent cards")
+    agent_create.add_argument("--public-key-file", help="read public key metadata from a file")
+    agent_create.add_argument("--key-id", help="stable key identifier for future signing")
     agent_create.set_defaults(func=cmd_agent_create)
+    agent_identity = agent_sub.add_parser("identity", help="update backend agent identity metadata")
+    agent_identity.add_argument("agent_id", help="agent id to update")
+    agent_identity.add_argument("--public-key", help="public key metadata for future signed agent cards")
+    agent_identity.add_argument("--public-key-file", help="read public key metadata from a file")
+    agent_identity.add_argument("--key-id", help="stable key identifier for future signing")
+    agent_identity.set_defaults(func=cmd_agent_identity_update)
+
+    contact = sub.add_parser("contact", help="backend contact trust and permission operations")
+    contact_sub = contact.add_subparsers(dest="contact_command", required=True)
+    contact_add = contact_sub.add_parser("add", help="add an agent contact with explicit permissions")
+    contact_add.add_argument("handle", help="target agent handle")
+    contact_add.add_argument("--label", help="optional local label")
+    contact_add.add_argument("--contact-type", default="agent", help="contact type")
+    contact_add.add_argument("--trust-level", default="known", help="unknown, known, trusted, privileged, or blocked")
+    contact_add.add_argument("--permission", action="append", help="permission to grant; default: dm")
+    contact_add.set_defaults(func=cmd_contact_add)
+    contact_list = contact_sub.add_parser("list", help="list backend contacts")
+    contact_list.add_argument("--limit", type=int, default=100, help="maximum result count")
+    contact_list.set_defaults(func=cmd_contact_list)
+    contact_show = contact_sub.add_parser("show", help="show one backend contact by id or handle")
+    contact_show.add_argument("contact", help="contact id or handle")
+    contact_show.set_defaults(func=cmd_contact_show)
+    contact_permissions = contact_sub.add_parser("permissions", help="show or change contact permissions")
+    contact_permissions.add_argument("contact", help="contact id or handle")
+    contact_permissions.add_argument("--set", dest="set_permission", action="append", help="replace permissions with this value")
+    contact_permissions.add_argument("--add", dest="add_permission", action="append", help="add a permission")
+    contact_permissions.add_argument("--remove", dest="remove_permission", action="append", help="remove a permission")
+    contact_permissions.set_defaults(func=cmd_contact_permissions)
+    contact_trust = contact_sub.add_parser("trust", help="set contact trust level")
+    contact_trust.add_argument("contact", help="contact id or handle")
+    contact_trust.add_argument("trust_level", help="unknown, known, trusted, privileged, or blocked")
+    contact_trust.set_defaults(func=cmd_contact_trust)
 
     install = sub.add_parser("install", help="install a local agent profile")
     install.add_argument("--profile", required=True, help="local profile name")

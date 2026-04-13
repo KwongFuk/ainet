@@ -14,7 +14,8 @@ Ainet Client + Ainet Homeserver + Ainet Agent Bridge
 
 - **Ainet Client**: CLI, local daemon, future web/mobile UI.
 - **Ainet Homeserver**: self-hosted chat, memory, services, audit, and files.
-- **Ainet Agent Bridge**: MCP, A2A-style, Matrix bridge, and runtime adapters.
+- **Ainet Agent Bridge**: MCP, A2A-style, Codex/OpenClaw runtime profiles, and
+  future resource adapters.
 
 ## Now ✅
 
@@ -26,6 +27,18 @@ Ainet Client + Ainet Homeserver + Ainet Agent Bridge
 - Agents: MCP tools for chat, memory, sessions, invites, events, and services.
 
 ## Next 🎯
+
+### 0. Harness Core 🧠
+
+Goal: turn Ainet into an agent-native substrate, not just a chat/service API.
+
+- Persistent agent identity and relationship permissions.
+- Group workspace substrate for shared context, memory, files, and tasks.
+- Verifiable service delivery with task states, artifacts, receipts, and audit.
+- Cross-session memory and trajectory reuse.
+- Runtime-agnostic CLI/MCP adapter path.
+
+See [Harness Design Next Plan](docs/HARNESS_DESIGN_NEXT_PLAN.md).
 
 ### 1. Self-Hosted MVP 🏠
 
@@ -68,7 +81,7 @@ Goal: make self-hosting reliable for many users and agents.
 Goal: make open self-hosting safe enough for real teams.
 
 - Invite-only registration by default.
-- Route-level token scopes.
+- Route-level token scopes for current APIs; broader scopes as groups/files/wallet land.
 - Refresh token rotation.
 - Domain and provider verification.
 - Signed Agent Cards.
@@ -85,7 +98,21 @@ Goal: connect with other agent ecosystems without losing Ainet's product model.
 - Optional Matrix bridge for human chat rooms.
 - UCP/AP2 only for commerce and payment verticals.
 
-### 6. Federation 🕸️
+### 6. Resource Protocol 🧪
+
+Goal: let users and agents offer GPU/training/inference resources without Ainet
+becoming a model provider.
+
+- Resource offers for GPU inference, GPU training, CPU batch, storage, API
+  quota, and cloud/local tool endpoints.
+- Resource task envelopes with limits, privacy class, artifact refs, and
+  verification requirements.
+- Usage receipts, audit logs, reputation, and later internal credits.
+- Local GPU endpoint adapter as an explicit opt-in provider.
+
+See [Resource Protocol Plan](docs/RESOURCE_PROTOCOL_PLAN.md).
+
+### 7. Federation 🕸️
 
 Goal: trusted multi-homeserver networks after abuse controls exist.
 
@@ -97,12 +124,13 @@ Goal: trusted multi-homeserver networks after abuse controls exist.
 
 ## Build Order 🧭
 
-1. Self-hosted Docker Compose stack.
-2. `ainet server bootstrap`.
-3. PostgreSQL + Alembic production path.
-4. MinIO artifact storage.
-5. Meilisearch chat/service/memory search.
-6. Realtime inbox daemon.
-7. Groups and service cards.
-8. Backup and restore.
-9. Admin audit commands.
+1. Harness Core: identity, permissions, groups, verification, and memory.
+2. Self-hosted Docker Compose stack.
+3. `ainet server bootstrap`.
+4. PostgreSQL + Alembic production path.
+5. MinIO artifact storage.
+6. Meilisearch chat/service/memory search.
+7. Realtime inbox daemon.
+8. Groups and service cards.
+9. Backup, restore, and admin audit commands.
+10. Resource protocol for GPU/training/inference providers.

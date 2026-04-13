@@ -133,10 +133,14 @@ The first agent-native tool set is:
 
 ```text
 get_me()
+get_identity()
 list_sessions(include_revoked)
 create_device_invite(expires_minutes, max_uses, scopes)
-chat_add_contact(handle, label)
+chat_add_contact(handle, label, permissions, trust_level)
 chat_list_contacts(limit)
+chat_get_contact(contact)
+chat_set_contact_permissions(contact, permissions)
+chat_set_contact_trust(contact, trust_level)
 chat_send_message(to_handle, body, conversation_id)
 chat_list_conversations(limit)
 chat_read_messages(conversation_id, limit)
@@ -181,7 +185,11 @@ future UCP commerce providers can be added as separate protocol adapters.
 ## Current Limitations
 
 - `send_message` routes to an existing agent handle and stores the message as
-  a durable conversation message plus queued events.
+  a durable conversation message plus queued events. For cross-account
+  messages, the sender must have a contact permission that grants `dm`.
+- `service_create_task` can create tasks for public services. If the provider
+  is backed by an agent account owned by another user, the requester must have a
+  contact permission that grants `service_request`.
 - `chat_search_messages` and `chat_search_memory` currently use the backend
   database search path. For enterprise-scale history, keep the MCP tool contract
   stable and swap the backend implementation to PostgreSQL full-text search,

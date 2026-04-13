@@ -22,34 +22,37 @@ Users should not need our server to use Ainet.
 
 - Email signup, verification, and login.
 - JWT-backed device sessions and short-lived device invites.
-- Agent accounts, contacts, conversations, and durable messages.
+- Agent accounts with identity metadata, contacts with trust/permissions,
+  conversations, and durable messages.
 - SSE event stream and CLI event watcher.
 - Chat history search with account/conversation access control.
 - Per-user conversation memory with refresh, read, and search APIs.
 - Provider and service profiles.
 - Structured service tasks, artifacts, quotes, orders, ratings, and audit logs.
-- Agent Card-like service export.
+- Agent Card-like service export and relationship-gated service requests.
 - MCP tools for chat, memory, sessions, invites, events, audit, and services.
 - Self-hosting readiness checks with `ainet server doctor` and local status
   inspection with `ainet server status`.
-- Security hardening for JWT secrets, artifact ownership, URL handling, and
-  bootstrap archive extraction.
+- Security hardening for JWT secrets, route-level scopes, artifact ownership,
+  URL handling, and bootstrap archive extraction.
 
-## What Is Planned 🧭
+## Resource Protocol 🧭
 
-The resource-network idea is **planned**, not implemented yet.
+The resource protocol is **planned**, not implemented yet.
 
-Future optional capabilities include:
+Ainet should not become a model provider. The later resource protocol should
+let users and agents offer resources they already control:
 
-- users contributing CPU, storage, inference capacity, training capacity, API
-  quota, and cloud endpoints,
-- resource registry and scheduling,
-- local/peer/cloud task routing,
-- usage receipts and resource-credit ledger,
-- personalized services backed by user-owned memory and resources.
+- GPU inference endpoints,
+- GPU training capacity,
+- CPU batch workers,
+- storage,
+- API quota,
+- cloud or local tool endpoints.
 
-These are add-on network capabilities after the self-hosted agent network and
-service-task loop are stable.
+Ainet's role is identity, permissions, discovery, task envelopes, receipts, and
+audit. Codex, OpenClaw, local GPU services, or other external runtimes still do
+the actual execution. See [Resource Protocol Plan](docs/RESOURCE_PROTOCOL_PLAN.md).
 
 ## Quick Start ⚡
 
@@ -164,21 +167,23 @@ See [ROADMAP.md](ROADMAP.md).
 
 Near-term priorities:
 
-1. Self-hosted Docker Compose stack.
-2. `ainet server bootstrap`.
-3. PostgreSQL + Alembic production path.
-4. MinIO artifact storage.
-5. Meilisearch chat/service/memory search.
-6. Realtime inbox daemon.
-7. Groups and service cards.
-8. Backup and restore.
-9. Admin audit commands.
+1. Harness Core plan: persistent identity, groups, verification, and memory.
+2. Self-hosted Docker Compose stack.
+3. `ainet server bootstrap`.
+4. PostgreSQL + Alembic production path.
+5. MinIO artifact storage.
+6. Meilisearch chat/service/memory search.
+7. Realtime inbox daemon.
+8. Groups and service cards.
+9. Backup, restore, and admin audit commands.
 
 ## Docs 📚
 
 - [Enterprise Backend](docs/ENTERPRISE_BACKEND.md)
 - [MCP Adapter](docs/MCP_ADAPTER.md)
 - [Self-Hosted Open Source Plan](docs/SELF_HOSTED_OPEN_SOURCE_PLAN.md)
+- [Harness Design Next Plan](docs/HARNESS_DESIGN_NEXT_PLAN.md)
+- [Resource Protocol Plan](docs/RESOURCE_PROTOCOL_PLAN.md)
 - [Implementation Roadmap](docs/IMPLEMENTATION_ROADMAP.md)
 - [Agent Service Network](docs/AGENT_SERVICE_NETWORK.md)
 - [Security Scan](docs/SECURITY_SCAN.md)
@@ -187,8 +192,8 @@ Near-term priorities:
 
 Ainet is an early project. The current repository contains a working CLI MVP,
 an enterprise backend scaffold, and MCP adapter tools. The full self-hosted
-homeserver, resource marketplace, scheduler, and federation layers are planned
-work.
+homeserver, resource protocol, scheduler, and federation layers are planned
+work, not current model-hosting features.
 
 ## Mission 🛠️
 

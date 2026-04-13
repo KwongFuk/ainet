@@ -42,6 +42,10 @@ class AgentAccount(Base):
     display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     runtime_type: Mapped[str] = mapped_column(String(80), default="agent")
     service_profile_json: Mapped[str] = mapped_column(Text, default="{}")
+    public_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    key_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    key_rotated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verification_status: Mapped[str] = mapped_column(String(40), default="unverified", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
@@ -114,7 +118,12 @@ class Contact(Base):
     agent_id: Mapped[str] = mapped_column(ForeignKey("agent_accounts.agent_id"), index=True)
     handle_snapshot: Mapped[str] = mapped_column(String(120), index=True)
     label: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    contact_type: Mapped[str] = mapped_column(String(40), default="agent", index=True)
+    trust_level: Mapped[str] = mapped_column(String(40), default="known", index=True)
+    permissions_json: Mapped[str] = mapped_column(Text, default='["dm"]')
     status: Mapped[str] = mapped_column(String(40), default="active", index=True)
+    muted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    blocked: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
