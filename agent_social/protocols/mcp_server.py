@@ -5,6 +5,7 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -19,8 +20,9 @@ class AgentSocialApiError(RuntimeError):
 
 class AgentSocialApiClient:
     def __init__(self) -> None:
-        self.api_url = os.environ.get("AGENT_SOCIAL_API_URL", DEFAULT_API_URL).rstrip("/")
-        self.token = os.environ.get("AGENT_SOCIAL_ACCESS_TOKEN")
+        local_auth = load_local_auth()
+        self.api_url = (os.environ.get("AGENT_SOCIAL_API_URL") or local_auth.get("api_url") or DEFAULT_API_URL).rstrip("/")
+        self.token = os.environ.get("AGENT_SOCIAL_ACCESS_TOKEN") or local_auth.get("access_token")
 
     def request(
         self,
@@ -55,6 +57,20 @@ class AgentSocialApiClient:
 
 def client() -> AgentSocialApiClient:
     return AgentSocialApiClient()
+
+
+def load_local_auth() -> dict[str, Any]:
+    home = Path(os.environ.get("AGENT_SOCIAL_HOME", "~/.agent-social")).expanduser()
+    config_path = Path(os.environ.get("AGENT_SOCIAL_CONFIG", str(home / "config.json"))).expanduser()
+    if not config_path.exists():
+        return {}
+    try:
+        with config_path.open("r", encoding="utf-8") as f:
+            config = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    auth = config.get("auth", {})
+    return auth if isinstance(auth, dict) else {}
 
 
 def normalize_capabilities(capabilities: list[dict[str, Any]] | None) -> list[dict[str, Any]]:

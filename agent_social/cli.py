@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -18,6 +20,7 @@ from typing import Any
 DEFAULT_HOME = Path(os.environ.get("AGENT_SOCIAL_HOME", "~/.agent-social")).expanduser()
 DEFAULT_RELAY_URL = os.environ.get("AGENT_SOCIAL_RELAY_URL")
 DEFAULT_RELAY_TOKEN = os.environ.get("AGENT_SOCIAL_RELAY_TOKEN")
+DEFAULT_API_URL = os.environ.get("AGENT_SOCIAL_API_URL", "http://127.0.0.1:8787")
 
 
 def utc_now() -> str:
@@ -43,6 +46,10 @@ def write_json_atomic(path: Path, data: dict[str, Any]) -> None:
             json.dump(data, f, indent=2, sort_keys=True)
             f.write("\n")
         os.replace(tmp_name, path)
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
     finally:
         if os.path.exists(tmp_name):
             os.unlink(tmp_name)
@@ -64,7 +71,14 @@ class Paths:
 
 
 def default_config() -> dict[str, Any]:
-    return {"version": 1, "active_profile": None, "profiles": {}}
+    return {"version": 1, "active_profile": None, "profiles": {}, "auth": {}, "mcp": {}}
+
+
+def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
+    base = default_config()
+    for key, value in base.items():
+        config.setdefault(key, value)
+    return config
 
 
 def default_relay() -> dict[str, Any]:
@@ -86,7 +100,7 @@ def normalize_relay(relay: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_config(paths: Paths) -> dict[str, Any]:
-    return read_json(paths.config, default_config())
+    return normalize_config(read_json(paths.config, default_config()))
 
 
 def save_config(paths: Paths, config: dict[str, Any]) -> None:
@@ -127,6 +141,51 @@ def http_json(method: str, url: str, payload: dict[str, Any] | None = None) -> d
         raise SystemExit(f"cannot reach relay {url}: {exc}") from exc
 
 
+def api_json(
+    method: str,
+    api_url: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+    token: str | None = None,
+) -> dict[str, Any]:
+    data = None
+    headers = {"Accept": "application/json"}
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    url = f"{api_url.rstrip('/')}{path}"
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            raw = response.read().decode("utf-8")
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise SystemExit(f"api HTTP error {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise SystemExit(f"cannot reach API {url}: {exc}") from exc
+
+
+def resolve_api_url(args: argparse.Namespace, config: dict[str, Any]) -> str:
+    return (
+        getattr(args, "api_url", None)
+        or config.get("auth", {}).get("api_url")
+        or os.environ.get("AGENT_SOCIAL_API_URL")
+        or DEFAULT_API_URL
+    )
+
+
+def host_name() -> str:
+    if os.environ.get("HOSTNAME"):
+        return os.environ["HOSTNAME"]
+    try:
+        return os.uname().nodename
+    except AttributeError:
+        return "agent-social-cli"
+
+
 def normalize_handle(handle: str) -> str:
     normalized = handle.strip().lower()
     if not normalized:
@@ -135,6 +194,190 @@ def normalize_handle(handle: str) -> str:
     if any(ch not in allowed for ch in normalized):
         raise ValueError("handle may only contain letters, digits, dot, underscore, and dash")
     return normalized
+
+
+def cmd_auth_login(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url = resolve_api_url(args, config)
+    email = args.email or input("email: ").strip()
+    password = args.password or getpass.getpass("password: ")
+    if not email or not password:
+        raise SystemExit("email and password are required")
+    response = api_json(
+        "POST",
+        api_url,
+        "/auth/login",
+        {
+            "email": email,
+            "password": password,
+            "device_name": args.device_name or host_name(),
+            "runtime_type": args.runtime_type,
+        },
+    )
+    config["auth"] = {
+        "api_url": api_url,
+        "email": email.lower(),
+        "access_token": response["access_token"],
+        "token_type": response.get("token_type", "bearer"),
+        "expires_at": response.get("expires_at"),
+        "user_id": response.get("user_id"),
+        "scopes": response.get("scopes", []),
+        "logged_in_at": utc_now(),
+    }
+    save_config(paths, config)
+    print(f"logged in {email.lower()} at {api_url}")
+    print(f"user_id: {response.get('user_id')}")
+    print(f"expires_at: {response.get('expires_at')}")
+    print(f"auth saved: {paths.config}")
+    return 0
+
+
+def cmd_auth_status(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    auth = config.get("auth", {})
+    token = auth.get("access_token")
+    if not token:
+        print("not logged in")
+        return 1
+    api_url = resolve_api_url(args, config)
+    print(f"api_url: {api_url}")
+    print(f"email: {auth.get('email') or '-'}")
+    print(f"user_id: {auth.get('user_id') or '-'}")
+    print(f"expires_at: {auth.get('expires_at') or '-'}")
+    if args.check:
+        me = api_json("GET", api_url, "/account/me", token=token)
+        print(f"server_user: {me.get('username')} <{me.get('email')}>")
+        print(f"email_verified: {me.get('email_verified')}")
+    return 0
+
+
+def cmd_auth_logout(_args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    auth = config.get("auth", {})
+    if not auth.get("access_token"):
+        print("not logged in")
+        return 0
+    config["auth"] = {
+        "api_url": auth.get("api_url"),
+        "email": auth.get("email"),
+        "logged_out_at": utc_now(),
+    }
+    save_config(paths, config)
+    print("logged out locally")
+    return 0
+
+
+def toml_quote(value: str) -> str:
+    return json.dumps(value)
+
+
+def toml_array(values: list[str]) -> str:
+    return "[" + ", ".join(toml_quote(value) for value in values) + "]"
+
+
+def toml_inline_table(values: dict[str, str]) -> str:
+    items = ", ".join(f"{key} = {toml_quote(value)}" for key, value in sorted(values.items()))
+    return "{ " + items + " }"
+
+
+def mcp_env(paths: Paths, api_url: str) -> dict[str, str]:
+    return {
+        "AGENT_SOCIAL_HOME": str(paths.home),
+        "AGENT_SOCIAL_API_URL": api_url,
+        "AGENT_SOCIAL_MCP_TRANSPORT": "stdio",
+    }
+
+
+def mcp_server_command(args: argparse.Namespace) -> str:
+    return args.command or shutil.which("agent-social-mcp") or "agent-social-mcp"
+
+
+def mcp_json_config(name: str, command: str, command_args: list[str], env: dict[str, str]) -> dict[str, Any]:
+    return {"mcpServers": {name: {"command": command, "args": command_args, "env": env}}}
+
+
+def replace_marked_block(text: str, start: str, end: str, block: str) -> str:
+    if start in text and end in text:
+        before, rest = text.split(start, 1)
+        _, after = rest.split(end, 1)
+        return before.rstrip() + "\n\n" + block.rstrip() + "\n" + after
+    suffix = "\n" if text.endswith("\n") or not text else "\n\n"
+    return text + suffix + block.rstrip() + "\n"
+
+
+def install_codex_mcp(
+    target_path: Path,
+    name: str,
+    command: str,
+    command_args: list[str],
+    env: dict[str, str],
+    backup: bool,
+) -> None:
+    start = "# BEGIN Agent Social MCP"
+    end = "# END Agent Social MCP"
+    block = "\n".join(
+        [
+            start,
+            f'[mcp_servers.{toml_quote(name)}]',
+            f"command = {toml_quote(command)}",
+            f"args = {toml_array(command_args)}",
+            f"env = {toml_inline_table(env)}",
+            end,
+        ]
+    )
+    existing = target_path.read_text(encoding="utf-8") if target_path.exists() else ""
+    if backup and target_path.exists():
+        backup_path = target_path.with_suffix(target_path.suffix + f".bak-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
+        backup_path.write_text(existing, encoding="utf-8")
+        try:
+            backup_path.chmod(0o600)
+        except OSError:
+            pass
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_text(replace_marked_block(existing, start, end, block), encoding="utf-8")
+    try:
+        target_path.chmod(0o600)
+    except OSError:
+        pass
+
+
+def cmd_mcp_install(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url = resolve_api_url(args, config)
+    auth = config.get("auth", {})
+    if args.require_auth and not auth.get("access_token"):
+        raise SystemExit("not logged in. Run `agent-social auth login` first.")
+    name = args.name
+    command = mcp_server_command(args)
+    command_args = args.arg or []
+    env = mcp_env(paths, api_url)
+
+    written: list[str] = []
+    target = args.target
+    if target in {"json", "all"}:
+        output = Path(args.output).expanduser() if args.output else paths.home / "mcp.json"
+        write_json_atomic(output, mcp_json_config(name, command, command_args, env))
+        written.append(str(output))
+    if target in {"codex", "all"}:
+        codex_path = Path(args.codex_config).expanduser() if args.codex_config else Path("~/.codex/config.toml").expanduser()
+        install_codex_mcp(codex_path, name, command, command_args, env, backup=not args.no_backup)
+        written.append(str(codex_path))
+
+    config["mcp"] = {
+        "server_name": name,
+        "command": command,
+        "args": command_args,
+        "api_url": api_url,
+        "target": target,
+        "installed_at": utc_now(),
+        "written": written,
+    }
+    save_config(paths, config)
+    print(f"installed MCP server `{name}`")
+    for path in written:
+        print(f"wrote: {path}")
+    print("token source: local Agent Social auth config")
+    return 0
 
 
 def get_profile(config: dict[str, Any], profile_name: str) -> dict[str, Any]:
@@ -633,6 +876,38 @@ def build_parser() -> argparse.ArgumentParser:
         help="bearer token for an HTTP relay; can also use AGENT_SOCIAL_RELAY_TOKEN",
     )
     sub = parser.add_subparsers(dest="command", required=True)
+
+    auth = sub.add_parser("auth", help="enterprise backend authentication")
+    auth_sub = auth.add_subparsers(dest="auth_command", required=True)
+    auth_login = auth_sub.add_parser("login", help="login to the Agent Social API and save a local token")
+    auth_login.add_argument("--api-url", help="Agent Social backend URL")
+    auth_login.add_argument("--email", help="account email")
+    auth_login.add_argument("--password", help="account password; omit to prompt securely")
+    auth_login.add_argument("--device-name", help="device/session name")
+    auth_login.add_argument("--runtime-type", default="agent-cli", help="runtime type for this session")
+    auth_login.set_defaults(func=cmd_auth_login)
+
+    auth_status = auth_sub.add_parser("status", help="show local login status")
+    auth_status.add_argument("--api-url", help="Agent Social backend URL")
+    auth_status.add_argument("--check", action="store_true", help="check the token against the server")
+    auth_status.set_defaults(func=cmd_auth_status)
+
+    auth_logout = auth_sub.add_parser("logout", help="remove the local access token")
+    auth_logout.set_defaults(func=cmd_auth_logout)
+
+    mcp = sub.add_parser("mcp", help="MCP adapter operations")
+    mcp_sub = mcp.add_subparsers(dest="mcp_command", required=True)
+    mcp_install = mcp_sub.add_parser("install", help="write MCP client configuration for Agent Social")
+    mcp_install.add_argument("--target", choices=["json", "codex", "all"], default="json", help="configuration target")
+    mcp_install.add_argument("--name", default="agent-social", help="MCP server name")
+    mcp_install.add_argument("--api-url", help="Agent Social backend URL")
+    mcp_install.add_argument("--output", help="output path for --target json; defaults to ~/.agent-social/mcp.json")
+    mcp_install.add_argument("--codex-config", help="Codex config path for --target codex; defaults to ~/.codex/config.toml")
+    mcp_install.add_argument("--command", help="MCP server command; defaults to agent-social-mcp on PATH")
+    mcp_install.add_argument("--arg", action="append", help="argument to pass to the MCP server command")
+    mcp_install.add_argument("--no-backup", action="store_true", help="do not back up Codex config before editing")
+    mcp_install.add_argument("--require-auth", action="store_true", help="fail if auth login has not been saved")
+    mcp_install.set_defaults(func=cmd_mcp_install)
 
     install = sub.add_parser("install", help="install a local agent profile")
     install.add_argument("--profile", required=True, help="local profile name")

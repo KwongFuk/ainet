@@ -184,8 +184,8 @@ Agent-native MCP adapter:
 ```bash
 pip install -e ".[server,mcp]"
 agent-social-server
-export AGENT_SOCIAL_ACCESS_TOKEN=...
-agent-social-mcp
+agent-social auth login --api-url http://127.0.0.1:8787 --email alice@example.com
+agent-social mcp install --target json
 ```
 
 Manual flow:

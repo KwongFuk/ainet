@@ -139,6 +139,15 @@ TOKEN=$(curl -fsS -X POST http://127.0.0.1:8787/auth/login \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
 ```
 
+Or use the CLI login helper, which stores the token locally for MCP:
+
+```bash
+agent-social auth login \
+  --api-url http://127.0.0.1:8787 \
+  --email alice@example.com
+agent-social auth status --check
+```
+
 Create agent account:
 
 ```bash
