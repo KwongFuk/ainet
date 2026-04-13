@@ -326,6 +326,151 @@ def poll_events(after_id: int = 0, limit: int = 50) -> dict[str, Any]:
     return {"events": events, "next_after_id": next_after_id}
 
 
+@mcp.tool()
+def chat_add_contact(handle: str, label: str | None = None) -> dict[str, Any]:
+    """Chat layer: add an agent handle to contacts."""
+    return add_contact(handle, label)
+
+
+@mcp.tool()
+def chat_list_contacts(limit: int = 100) -> dict[str, Any]:
+    """Chat layer: list saved contacts."""
+    return list_contacts(limit)
+
+
+@mcp.tool()
+def chat_send_message(to_handle: str, body: str, conversation_id: str | None = None) -> dict[str, Any]:
+    """Chat layer: send a durable direct message."""
+    return send_message(to_handle, body, conversation_id)
+
+
+@mcp.tool()
+def chat_list_conversations(limit: int = 100) -> dict[str, Any]:
+    """Chat layer: list conversations."""
+    return list_conversations(limit)
+
+
+@mcp.tool()
+def chat_read_messages(conversation_id: str, limit: int = 100) -> dict[str, Any]:
+    """Chat layer: read messages in a conversation."""
+    return read_messages(conversation_id, limit)
+
+
+@mcp.tool()
+def chat_poll_events(after_id: int = 0, limit: int = 50) -> dict[str, Any]:
+    """Chat layer: poll incoming events."""
+    return poll_events(after_id, limit)
+
+
+@mcp.tool()
+def service_search(
+    query: str | None = None,
+    capability: str | None = None,
+    category: str | None = None,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Service layer: search provider service profiles."""
+    return search_services(query, capability, category, limit)
+
+
+@mcp.tool()
+def service_publish(
+    title: str,
+    description: str = "",
+    category: str = "general",
+    provider_id: str | None = None,
+    provider_display_name: str | None = None,
+    provider_type: str = "agent",
+    pricing_model: str = "quote",
+    currency: str = "credits",
+    base_price_cents: int | None = None,
+    capabilities: list[dict[str, Any]] | None = None,
+    input_schema: dict[str, Any] | None = None,
+    output_schema: dict[str, Any] | None = None,
+    sla: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Service layer: publish a provider service profile."""
+    return publish_service(
+        title=title,
+        description=description,
+        category=category,
+        provider_id=provider_id,
+        provider_display_name=provider_display_name,
+        provider_type=provider_type,
+        pricing_model=pricing_model,
+        currency=currency,
+        base_price_cents=base_price_cents,
+        capabilities=capabilities,
+        input_schema=input_schema,
+        output_schema=output_schema,
+        sla=sla,
+    )
+
+
+@mcp.tool()
+def service_create_task(
+    service_id: str,
+    goal: str,
+    capability_id: str | None = None,
+    inputs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Service layer: create a structured service task."""
+    return create_task(service_id, goal, capability_id, inputs)
+
+
+@mcp.tool()
+def service_get_task_status(task_id: str) -> dict[str, Any]:
+    """Service layer: fetch task status and result."""
+    return get_task_status(task_id)
+
+
+@mcp.tool()
+def service_create_quote(
+    task_id: str,
+    amount_cents: int,
+    currency: str = "credits",
+    terms: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Service layer: create a provider quote."""
+    return create_quote(task_id, amount_cents, currency, terms)
+
+
+@mcp.tool()
+def service_accept_quote(quote_id: str, settlement_mode: str = "internal_credits") -> dict[str, Any]:
+    """Service layer: accept a quote and create an order/payment record."""
+    return accept_quote(quote_id, settlement_mode)
+
+
+@mcp.tool()
+def service_list_orders(limit: int = 100) -> dict[str, Any]:
+    """Service layer: list visible service orders."""
+    return list_orders(limit)
+
+
+@mcp.tool()
+def service_list_payments(limit: int = 100) -> dict[str, Any]:
+    """Service layer: list payment records."""
+    return list_payments(limit)
+
+
+@mcp.tool()
+def service_submit_task_result(task_id: str, status: str = "completed", result: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Service layer: submit provider task result."""
+    return submit_task_result(task_id, status, result)
+
+
+@mcp.tool()
+def service_rate_task(task_id: str, score: int, comment: str = "") -> dict[str, Any]:
+    """Service layer: rate a service task."""
+    return rate_task(task_id, score, comment)
+
+
+@mcp.tool()
+def service_get_reputation(provider_id: str) -> dict[str, Any]:
+    """Service layer: fetch provider reputation."""
+    return get_reputation(provider_id)
+
+
 def main() -> None:
     transport = os.environ.get("AGENT_SOCIAL_MCP_TRANSPORT", "stdio")
     mcp.run(transport=transport)
