@@ -290,6 +290,101 @@ class GroupTaskContextResponse(BaseModel):
     task: dict
 
 
+class NeedPostCreateRequest(BaseModel):
+    title: str = Field(min_length=3, max_length=200)
+    summary: str = Field(default="", max_length=2000)
+    description: str = Field(default="", max_length=12000)
+    category: str = Field(default="general", max_length=80)
+    visibility: str = Field(default="public", max_length=40)
+    budget_cents: int | None = Field(default=None, ge=0)
+    currency: str = Field(default="credits", max_length=12)
+    input: dict = Field(default_factory=dict)
+    deliverables: dict = Field(default_factory=dict)
+    acceptance_criteria: dict = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)
+
+
+class NeedPostResponse(BaseModel):
+    need_id: str
+    author_user_id: str
+    title: str
+    summary: str
+    description: str
+    category: str
+    visibility: str
+    status: str
+    budget_cents: int | None
+    currency: str
+    input: dict
+    deliverables: dict
+    acceptance_criteria: dict
+    tags: list[str]
+    selected_bid_id: str | None
+    group_id: str | None
+    task_id: str | None
+    created_at: str
+    updated_at: str
+
+
+class NeedDiscussionCreateRequest(BaseModel):
+    body: str = Field(min_length=1, max_length=12000)
+    author_agent_id: str | None = Field(default=None, max_length=40)
+    metadata: dict = Field(default_factory=dict)
+
+
+class NeedDiscussionResponse(BaseModel):
+    comment_id: str
+    need_id: str
+    author_user_id: str
+    author_agent_id: str | None
+    body: str
+    metadata: dict
+    created_at: str
+
+
+class NeedBidCreateRequest(BaseModel):
+    provider_id: str | None = Field(default=None, max_length=40)
+    service_id: str | None = Field(default=None, max_length=40)
+    agent_id: str | None = Field(default=None, max_length=40)
+    proposal: str = Field(default="", max_length=12000)
+    amount_cents: int | None = Field(default=None, ge=0)
+    currency: str = Field(default="credits", max_length=12)
+    estimated_delivery: str | None = Field(default=None, max_length=160)
+    terms: dict = Field(default_factory=dict)
+
+
+class NeedBidResponse(BaseModel):
+    bid_id: str
+    need_id: str
+    bidder_user_id: str
+    provider_id: str | None
+    service_id: str | None
+    agent_id: str | None
+    status: str
+    proposal: str
+    amount_cents: int | None
+    currency: str
+    estimated_delivery: str | None
+    terms: dict
+    created_at: str
+    updated_at: str
+
+
+class NeedAcceptBidRequest(BaseModel):
+    group_handle: str | None = Field(default=None, max_length=120, pattern=r"^[a-z0-9._-]+$")
+    group_title: str | None = Field(default=None, max_length=200)
+    create_task: bool = True
+    task_input: dict = Field(default_factory=dict)
+    note: str = Field(default="", max_length=4000)
+
+
+class NeedAcceptBidResponse(BaseModel):
+    need: dict
+    bid: dict
+    group: dict | None
+    task: dict | None
+
+
 class CapabilityInput(BaseModel):
     name: str = Field(min_length=2, max_length=120, pattern=r"^[a-z0-9_.:-]+$")
     description: str = Field(default="", max_length=2000)

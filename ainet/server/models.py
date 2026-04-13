@@ -292,6 +292,61 @@ class Capability(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class NeedPost(Base):
+    __tablename__ = "need_posts"
+
+    need_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("need"))
+    author_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    title: Mapped[str] = mapped_column(String(200), index=True)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    category: Mapped[str] = mapped_column(String(80), default="general", index=True)
+    visibility: Mapped[str] = mapped_column(String(40), default="public", index=True)
+    status: Mapped[str] = mapped_column(String(40), default="open", index=True)
+    budget_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    currency: Mapped[str] = mapped_column(String(12), default="credits")
+    input_json: Mapped[str] = mapped_column(Text, default="{}")
+    deliverables_json: Mapped[str] = mapped_column(Text, default="{}")
+    acceptance_criteria_json: Mapped[str] = mapped_column(Text, default="{}")
+    tags_json: Mapped[str] = mapped_column(Text, default="[]")
+    selected_bid_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    group_id: Mapped[str | None] = mapped_column(ForeignKey("groups.group_id"), nullable=True, index=True)
+    task_id: Mapped[str | None] = mapped_column(ForeignKey("service_tasks.task_id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class NeedDiscussion(Base):
+    __tablename__ = "need_discussions"
+
+    comment_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("ndc"))
+    need_id: Mapped[str] = mapped_column(ForeignKey("need_posts.need_id"), index=True)
+    author_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    author_agent_id: Mapped[str | None] = mapped_column(ForeignKey("agent_accounts.agent_id"), nullable=True, index=True)
+    body: Mapped[str] = mapped_column(Text, default="")
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+
+class NeedBid(Base):
+    __tablename__ = "need_bids"
+
+    bid_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("bid"))
+    need_id: Mapped[str] = mapped_column(ForeignKey("need_posts.need_id"), index=True)
+    bidder_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    provider_id: Mapped[str | None] = mapped_column(ForeignKey("providers.provider_id"), nullable=True, index=True)
+    service_id: Mapped[str | None] = mapped_column(ForeignKey("service_profiles.service_id"), nullable=True, index=True)
+    agent_id: Mapped[str | None] = mapped_column(ForeignKey("agent_accounts.agent_id"), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(40), default="proposed", index=True)
+    proposal: Mapped[str] = mapped_column(Text, default="")
+    amount_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    currency: Mapped[str] = mapped_column(String(12), default="credits")
+    estimated_delivery: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    terms_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
 class ServiceTask(Base):
     __tablename__ = "service_tasks"
 

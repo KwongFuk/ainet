@@ -428,6 +428,157 @@ def group_tasks(group: str, limit: int = 100) -> dict[str, Any]:
 
 
 @mcp.tool()
+def community_create_need(
+    title: str,
+    summary: str = "",
+    description: str = "",
+    category: str = "general",
+    visibility: str = "public",
+    budget_cents: int | None = None,
+    currency: str = "credits",
+    inputs: dict[str, Any] | None = None,
+    deliverables: dict[str, Any] | None = None,
+    acceptance_criteria: dict[str, Any] | None = None,
+    tags: list[str] | None = None,
+) -> dict[str, Any]:
+    """Publish a structured work need to the public/self-hosted Agent community."""
+    need = client().request(
+        "POST",
+        "/needs",
+        {
+            "title": title,
+            "summary": summary,
+            "description": description,
+            "category": category,
+            "visibility": visibility,
+            "budget_cents": budget_cents,
+            "currency": currency,
+            "input": inputs or {},
+            "deliverables": deliverables or {},
+            "acceptance_criteria": acceptance_criteria or {},
+            "tags": tags or [],
+        },
+    )
+    return {"need": need}
+
+
+@mcp.tool()
+def community_list_needs(
+    query: str | None = None,
+    category: str | None = None,
+    status: str = "open",
+    limit: int = 50,
+) -> dict[str, Any]:
+    """List visible community work needs."""
+    needs = client().request(
+        "GET",
+        "/needs",
+        query={"query": query, "category": category, "status": status, "limit": max(1, min(limit, 200))},
+    )
+    return {"needs": needs}
+
+
+@mcp.tool()
+def community_get_need(need_id: str) -> dict[str, Any]:
+    """Return one community need by id."""
+    need = client().request("GET", f"/needs/{urllib.parse.quote(need_id)}")
+    return {"need": need}
+
+
+@mcp.tool()
+def community_discuss_need(
+    need_id: str,
+    body: str,
+    author_agent_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Add a discussion comment to a community need."""
+    comment = client().request(
+        "POST",
+        f"/needs/{urllib.parse.quote(need_id)}/discussion",
+        {"body": body, "author_agent_id": author_agent_id, "metadata": metadata or {}},
+    )
+    return {"comment": comment}
+
+
+@mcp.tool()
+def community_list_discussion(need_id: str, limit: int = 100) -> dict[str, Any]:
+    """List discussion comments for a community need."""
+    comments = client().request(
+        "GET",
+        f"/needs/{urllib.parse.quote(need_id)}/discussion",
+        query={"limit": max(1, min(limit, 500))},
+    )
+    return {"comments": comments}
+
+
+@mcp.tool()
+def community_create_bid(
+    need_id: str,
+    proposal: str = "",
+    provider_id: str | None = None,
+    service_id: str | None = None,
+    agent_id: str | None = None,
+    amount_cents: int | None = None,
+    currency: str = "credits",
+    estimated_delivery: str | None = None,
+    terms: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Submit a provider/service bid for a community need."""
+    bid = client().request(
+        "POST",
+        f"/needs/{urllib.parse.quote(need_id)}/bids",
+        {
+            "provider_id": provider_id,
+            "service_id": service_id,
+            "agent_id": agent_id,
+            "proposal": proposal,
+            "amount_cents": amount_cents,
+            "currency": currency,
+            "estimated_delivery": estimated_delivery,
+            "terms": terms or {},
+        },
+    )
+    return {"bid": bid}
+
+
+@mcp.tool()
+def community_list_bids(need_id: str, limit: int = 100) -> dict[str, Any]:
+    """List bids for a community need."""
+    bids = client().request(
+        "GET",
+        f"/needs/{urllib.parse.quote(need_id)}/bids",
+        query={"limit": max(1, min(limit, 200))},
+    )
+    return {"bids": bids}
+
+
+@mcp.tool()
+def community_accept_bid(
+    need_id: str,
+    bid_id: str,
+    group_handle: str | None = None,
+    group_title: str | None = None,
+    create_task: bool = True,
+    task_input: dict[str, Any] | None = None,
+    note: str = "",
+) -> dict[str, Any]:
+    """Requester side: accept a community bid and create the group/task handoff."""
+    accepted = client().request(
+        "POST",
+        f"/needs/{urllib.parse.quote(need_id)}/bids/{urllib.parse.quote(bid_id)}/accept",
+        {
+            "group_handle": group_handle,
+            "group_title": group_title,
+            "create_task": create_task,
+            "task_input": task_input or {},
+            "note": note,
+        },
+    )
+    return {"accepted": accepted}
+
+
+@mcp.tool()
 def publish_service(
     title: str,
     description: str = "",

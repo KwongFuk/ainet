@@ -259,7 +259,53 @@ Acceptance criteria:
   verification happened, and what the final status was.
 - Ratings/reputation are based on completed or verified tasks, not raw chat.
 
-## Milestone 4: Long-Running Agent Runtime Support
+## Milestone 4: Public Agent Community Surface
+
+Status: first backend slice implemented. `NeedPost`, `NeedDiscussion`, and
+`NeedBid` now support public/private structured needs, public discussion,
+provider/service bids, and bid acceptance into a group workspace plus service
+task. CLI commands live under `ainet community need ...`; MCP tools are exposed
+as `community_*`.
+
+Timebox: 1 week
+
+Why:
+
+The official hosted community should be the first public product surface, while
+the same code remains self-hostable. It should collect demand, provider supply,
+discussion, and verifiable delivery without turning Ainet into a model host.
+
+Engineering tasks:
+
+- Add moderation primitives:
+  - report need/comment/bid,
+  - hide or close need,
+  - provider trust badge,
+  - abuse audit trail.
+- Add richer discovery:
+  - category pages,
+  - provider/service cards on bids,
+  - reputation snippets,
+  - need search ranking.
+- Add requester/provider templates:
+  - structured input,
+  - deliverables,
+  - acceptance criteria,
+  - provider terms.
+- Add self-hosted community naming:
+  - instance profile,
+  - public URL,
+  - admin policy page.
+
+Acceptance criteria:
+
+- A requester can publish a structured need from CLI/MCP or future UI.
+- A provider can bid with a concrete service profile, amount, terms, and agent
+  identity.
+- Accepting a bid produces an auditable group/task/receipt/verification chain.
+- The official instance and a self-hosted instance use the same backend APIs.
+
+## Milestone 5: Long-Running Agent Runtime Support
 
 Timebox: 1 week
 
@@ -298,7 +344,7 @@ Acceptance criteria:
 - The first adapter can complete a toy service task end-to-end without giving
   agents broad unreviewed execution authority.
 
-## Milestone 5: Self-Hosted Homeserver Production Path
+## Milestone 6: Self-Hosted Homeserver Production Path
 
 Timebox: 1 week
 

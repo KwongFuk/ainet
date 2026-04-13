@@ -35,6 +35,9 @@ from .models import (
     GroupTaskContext,
     HumanAccount,
     Invite,
+    NeedBid,
+    NeedDiscussion,
+    NeedPost,
     PaymentRecord,
     Provider,
     QueuedEvent,
@@ -83,6 +86,14 @@ from .schemas import (
     MeResponse,
     MessageResponse,
     MessageRequest,
+    NeedAcceptBidRequest,
+    NeedAcceptBidResponse,
+    NeedBidCreateRequest,
+    NeedBidResponse,
+    NeedDiscussionCreateRequest,
+    NeedDiscussionResponse,
+    NeedPostCreateRequest,
+    NeedPostResponse,
     OrderResponse,
     PaymentResponse,
     ProviderCreateRequest,
@@ -143,6 +154,22 @@ PRE_GROUP_DEFAULT_SESSION_SCOPES = {
     "events:read",
     "audit:read",
 }
+PRE_COMMUNITY_DEFAULT_SESSION_SCOPES = {
+    "profile:read",
+    "profile:write",
+    "sessions:read",
+    "sessions:write",
+    "messages:read",
+    "messages:send",
+    "contacts:read",
+    "contacts:write",
+    "services:read",
+    "services:write",
+    "groups:read",
+    "groups:write",
+    "events:read",
+    "audit:read",
+}
 DEFAULT_SESSION_SCOPES = [
     "profile:read",
     "profile:write",
@@ -156,6 +183,8 @@ DEFAULT_SESSION_SCOPES = [
     "services:write",
     "groups:read",
     "groups:write",
+    "community:read",
+    "community:write",
     "events:read",
     "audit:read",
 ]
@@ -197,6 +226,9 @@ PROVIDER_WRITABLE_TASK_STATUSES = {"accepted", "in_progress", "submitted", "veri
 REQUESTER_WRITABLE_TASK_STATUSES = {"cancelled"}
 FINAL_TASK_STATUSES = {"verified", "rejected", "failed", "cancelled", "completed"}
 VERIFICATION_TASK_STATUSES = {"verified", "rejected"}
+KNOWN_NEED_VISIBILITIES = {"public", "private"}
+KNOWN_NEED_STATUSES = {"open", "assigned", "completed", "cancelled"}
+KNOWN_BID_STATUSES = {"proposed", "accepted", "rejected", "withdrawn"}
 
 
 def as_utc(value: datetime) -> datetime:
@@ -262,9 +294,31 @@ def normalize_task_status(status_value: str) -> str:
     return normalized
 
 
+def normalize_need_visibility(visibility: str) -> str:
+    normalized = visibility.strip().lower()
+    if normalized not in KNOWN_NEED_VISIBILITIES:
+        raise HTTPException(status_code=400, detail=f"unsupported need visibility: {visibility}")
+    return normalized
+
+
+def normalize_need_tags(tags: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    for tag in tags or []:
+        item = tag.strip().lower()
+        if not item:
+            continue
+        if len(item) > 80:
+            raise HTTPException(status_code=400, detail=f"need tag is too long: {tag}")
+        if item not in normalized:
+            normalized.append(item)
+    if len(normalized) > 25:
+        raise HTTPException(status_code=400, detail="need tags are limited to 25 entries")
+    return normalized
+
+
 def effective_session_scopes(scopes_text: str) -> set[str]:
     scopes = set(scopes_text.split())
-    if scopes == LEGACY_FULL_SESSION_SCOPES or scopes == PRE_GROUP_DEFAULT_SESSION_SCOPES:
+    if scopes in (LEGACY_FULL_SESSION_SCOPES, PRE_GROUP_DEFAULT_SESSION_SCOPES, PRE_COMMUNITY_DEFAULT_SESSION_SCOPES):
         return set(DEFAULT_SESSION_SCOPES)
     return scopes
 
@@ -480,6 +534,61 @@ def group_task_context_response(context: GroupTaskContext, task: ServiceTask) ->
     )
 
 
+def need_response(need: NeedPost) -> NeedPostResponse:
+    return NeedPostResponse(
+        need_id=need.need_id,
+        author_user_id=need.author_user_id,
+        title=need.title,
+        summary=need.summary,
+        description=need.description,
+        category=need.category,
+        visibility=need.visibility,
+        status=need.status,
+        budget_cents=need.budget_cents,
+        currency=need.currency,
+        input=parse_json(need.input_json),
+        deliverables=parse_json(need.deliverables_json),
+        acceptance_criteria=parse_json(need.acceptance_criteria_json),
+        tags=parse_json_list(need.tags_json),
+        selected_bid_id=need.selected_bid_id,
+        group_id=need.group_id,
+        task_id=need.task_id,
+        created_at=iso(need.created_at) or "",
+        updated_at=iso(need.updated_at) or "",
+    )
+
+
+def need_discussion_response(comment: NeedDiscussion) -> NeedDiscussionResponse:
+    return NeedDiscussionResponse(
+        comment_id=comment.comment_id,
+        need_id=comment.need_id,
+        author_user_id=comment.author_user_id,
+        author_agent_id=comment.author_agent_id,
+        body=comment.body,
+        metadata=parse_json(comment.metadata_json),
+        created_at=iso(comment.created_at) or "",
+    )
+
+
+def need_bid_response(bid: NeedBid) -> NeedBidResponse:
+    return NeedBidResponse(
+        bid_id=bid.bid_id,
+        need_id=bid.need_id,
+        bidder_user_id=bid.bidder_user_id,
+        provider_id=bid.provider_id,
+        service_id=bid.service_id,
+        agent_id=bid.agent_id,
+        status=bid.status,
+        proposal=bid.proposal,
+        amount_cents=bid.amount_cents,
+        currency=bid.currency,
+        estimated_delivery=bid.estimated_delivery,
+        terms=parse_json(bid.terms_json),
+        created_at=iso(bid.created_at) or "",
+        updated_at=iso(bid.updated_at) or "",
+    )
+
+
 def payment_response(payment: PaymentRecord) -> PaymentResponse:
     return PaymentResponse(
         payment_id=payment.payment_id,
@@ -673,6 +782,114 @@ def require_group_permission(
     if permission not in set(parse_json_list(member.permissions_json)):
         raise HTTPException(status_code=403, detail=f"group permission required: {permission}")
     return group, member
+
+
+def visible_need(db: Session, need_id: str, user: HumanAccount) -> NeedPost:
+    need = db.get(NeedPost, need_id)
+    if not need:
+        raise HTTPException(status_code=404, detail="need not found")
+    if need.visibility == "public" or need.author_user_id == user.user_id:
+        return need
+    bid = db.scalar(
+        select(NeedBid)
+        .where(NeedBid.need_id == need.need_id)
+        .where(NeedBid.bidder_user_id == user.user_id)
+        .limit(1)
+    )
+    if not bid:
+        raise HTTPException(status_code=404, detail="need not found")
+    return need
+
+
+def author_owned_need(db: Session, need_id: str, user: HumanAccount) -> NeedPost:
+    need = db.get(NeedPost, need_id)
+    if not need or need.author_user_id != user.user_id:
+        raise HTTPException(status_code=404, detail="need not found")
+    return need
+
+
+def validate_need_bid_party(
+    db: Session,
+    user: HumanAccount,
+    payload: NeedBidCreateRequest,
+) -> tuple[str | None, str | None, str | None]:
+    provider_id = payload.provider_id
+    service_id = payload.service_id
+    agent_id = validate_agent_owner(db, user, payload.agent_id)
+    provider: Provider | None = None
+    if service_id:
+        service = db.get(ServiceProfile, service_id)
+        if not service or service.status != "active":
+            raise HTTPException(status_code=404, detail="service profile not found")
+        provider = db.get(Provider, service.provider_id)
+        if not provider or provider.owner_user_id != user.user_id:
+            raise HTTPException(status_code=404, detail="service profile not found for this account")
+        if provider_id and provider_id != provider.provider_id:
+            raise HTTPException(status_code=400, detail="service does not belong to provider")
+        provider_id = provider.provider_id
+        if agent_id and provider.agent_id and agent_id != provider.agent_id:
+            raise HTTPException(status_code=400, detail="bid agent does not match service provider agent")
+        agent_id = agent_id or provider.agent_id
+    elif provider_id:
+        provider = db.get(Provider, provider_id)
+        if not provider or provider.owner_user_id != user.user_id:
+            raise HTTPException(status_code=404, detail="provider not found for this account")
+        if agent_id and provider.agent_id and agent_id != provider.agent_id:
+            raise HTTPException(status_code=400, detail="bid agent does not match provider agent")
+        agent_id = agent_id or provider.agent_id
+    if not provider_id and not service_id and not agent_id:
+        raise HTTPException(status_code=400, detail="bid requires provider_id, service_id, or agent_id")
+    return provider_id, service_id, agent_id
+
+
+def generated_need_group_handle(db: Session, need: NeedPost) -> str:
+    seed = "".join(ch if ch.isalnum() else "-" for ch in need.title.lower()).strip("-") or "need"
+    seed = seed[:40].strip("-") or "need"
+    suffix = need.need_id.removeprefix("need_")[:8]
+    base = f"need-{suffix}-{seed}"[:90].strip("-")
+    candidate = base
+    counter = 2
+    while db.scalar(select(Group).where(Group.handle == candidate)):
+        candidate = f"{base}-{counter}"[:120]
+        counter += 1
+    return candidate
+
+
+def ensure_need_group(
+    db: Session,
+    user: HumanAccount,
+    need: NeedPost,
+    payload: NeedAcceptBidRequest,
+) -> Group:
+    if need.group_id:
+        group = db.get(Group, need.group_id)
+        if group:
+            return group
+    handle = payload.group_handle or generated_need_group_handle(db, need)
+    if db.scalar(select(Group).where(Group.handle == handle)):
+        raise HTTPException(status_code=409, detail="group handle already exists")
+    permissions = normalize_group_permissions(DEFAULT_GROUP_PERMISSIONS, default_full=True)
+    group = Group(
+        owner_user_id=user.user_id,
+        handle=handle,
+        title=payload.group_title or f"Need: {need.title}",
+        description=need.summary or need.description[:8000],
+        group_type="community_need",
+        default_permissions_json=json.dumps(normalize_group_permissions([]), sort_keys=True),
+    )
+    db.add(group)
+    db.flush()
+    db.add(
+        GroupMember(
+            group_id=group.group_id,
+            user_id=user.user_id,
+            handle_snapshot=user.username,
+            role="owner",
+            permissions_json=json.dumps(permissions, sort_keys=True),
+        )
+    )
+    need.group_id = group.group_id
+    return group
 
 
 def visible_task(db: Session, task_id: str, user: HumanAccount) -> ServiceTask:
@@ -1830,6 +2047,348 @@ def create_app() -> FastAPI:
             if task:
                 responses.append(group_task_context_response(context, task))
         return responses
+
+    @app.post("/needs", response_model=NeedPostResponse, status_code=status.HTTP_201_CREATED)
+    async def create_need(
+        payload: NeedPostCreateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("community:write")),
+    ) -> NeedPostResponse:
+        need = NeedPost(
+            author_user_id=user.user_id,
+            title=payload.title,
+            summary=payload.summary,
+            description=payload.description,
+            category=payload.category.strip().lower() or "general",
+            visibility=normalize_need_visibility(payload.visibility),
+            budget_cents=payload.budget_cents,
+            currency=payload.currency,
+            input_json=dump_json(payload.input),
+            deliverables_json=dump_json(payload.deliverables),
+            acceptance_criteria_json=dump_json(payload.acceptance_criteria),
+            tags_json=json.dumps(normalize_need_tags(payload.tags), sort_keys=True),
+        )
+        db.add(need)
+        db.flush()
+        audit(db, user, "need.create", "need", need.need_id, {"title": need.title, "category": need.category})
+        db.commit()
+        db.refresh(need)
+        await app.state.event_bus.publish(
+            db,
+            "need.created",
+            {"need_id": need.need_id, "title": need.title, "category": need.category, "visibility": need.visibility},
+            user.user_id,
+        )
+        return need_response(need)
+
+    @app.get("/needs", response_model=list[NeedPostResponse])
+    def list_needs(
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("community:read")),
+        query: str | None = None,
+        category: str | None = None,
+        status: str | None = "open",
+        limit: int = 50,
+    ) -> list[NeedPostResponse]:
+        stmt = select(NeedPost).where((NeedPost.visibility == "public") | (NeedPost.author_user_id == user.user_id))
+        if status and status != "any":
+            normalized_status = status.strip().lower()
+            if normalized_status not in KNOWN_NEED_STATUSES:
+                raise HTTPException(status_code=400, detail=f"unsupported need status: {status}")
+            stmt = stmt.where(NeedPost.status == normalized_status)
+        if category:
+            stmt = stmt.where(NeedPost.category == category.strip().lower())
+        if query:
+            if len(query.strip()) < 2:
+                raise HTTPException(status_code=400, detail="query must be at least 2 characters")
+            pattern = contains_pattern(query)
+            stmt = stmt.where(
+                NeedPost.title.ilike(pattern, escape="\\")
+                | NeedPost.summary.ilike(pattern, escape="\\")
+                | NeedPost.description.ilike(pattern, escape="\\")
+                | NeedPost.tags_json.ilike(pattern, escape="\\")
+            )
+        rows = db.scalars(stmt.order_by(NeedPost.updated_at.desc(), NeedPost.created_at.desc()).limit(min(limit, 200))).all()
+        return [need_response(row) for row in rows]
+
+    @app.get("/needs/{need_id}", response_model=NeedPostResponse)
+    def get_need(
+        need_id: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("community:read")),
+    ) -> NeedPostResponse:
+        return need_response(visible_need(db, need_id, user))
+
+    @app.post("/needs/{need_id}/discussion", response_model=NeedDiscussionResponse, status_code=status.HTTP_201_CREATED)
+    async def create_need_discussion(
+        need_id: str,
+        payload: NeedDiscussionCreateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("community:write")),
+    ) -> NeedDiscussionResponse:
+        need = visible_need(db, need_id, user)
+        author_agent_id = validate_agent_owner(db, user, payload.author_agent_id)
+        comment = NeedDiscussion(
+            need_id=need.need_id,
+            author_user_id=user.user_id,
+            author_agent_id=author_agent_id,
+            body=payload.body,
+            metadata_json=dump_json(payload.metadata),
+        )
+        db.add(comment)
+        db.flush()
+        audit(db, user, "need.discussion.create", "need", need.need_id, {"comment_id": comment.comment_id})
+        db.commit()
+        db.refresh(comment)
+        recipients = {need.author_user_id}
+        recipients.update(
+            db.scalars(
+                select(NeedBid.bidder_user_id)
+                .where(NeedBid.need_id == need.need_id)
+                .where(NeedBid.status.in_(["proposed", "accepted"]))
+            ).all()
+        )
+        for recipient_user_id in recipients:
+            await app.state.event_bus.publish(
+                db,
+                "need.discussion",
+                {
+                    "need_id": need.need_id,
+                    "comment_id": comment.comment_id,
+                    "author_user_id": user.user_id,
+                },
+                recipient_user_id,
+            )
+        return need_discussion_response(comment)
+
+    @app.get("/needs/{need_id}/discussion", response_model=list[NeedDiscussionResponse])
+    def list_need_discussion(
+        need_id: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("community:read")),
+        limit: int = 100,
+    ) -> list[NeedDiscussionResponse]:
+        need = visible_need(db, need_id, user)
+        comments = db.scalars(
+            select(NeedDiscussion)
+            .where(NeedDiscussion.need_id == need.need_id)
+            .order_by(NeedDiscussion.created_at.asc())
+            .limit(min(limit, 500))
+        ).all()
+        return [need_discussion_response(comment) for comment in comments]
+
+    @app.post("/needs/{need_id}/bids", response_model=NeedBidResponse, status_code=status.HTTP_201_CREATED)
+    async def create_need_bid(
+        need_id: str,
+        payload: NeedBidCreateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("community:write")),
+    ) -> NeedBidResponse:
+        need = visible_need(db, need_id, user)
+        if need.status != "open":
+            raise HTTPException(status_code=400, detail=f"need is not open: {need.status}")
+        if need.author_user_id == user.user_id:
+            raise HTTPException(status_code=400, detail="need author cannot bid on their own need")
+        provider_id, service_id, agent_id = validate_need_bid_party(db, user, payload)
+        bid = NeedBid(
+            need_id=need.need_id,
+            bidder_user_id=user.user_id,
+            provider_id=provider_id,
+            service_id=service_id,
+            agent_id=agent_id,
+            proposal=payload.proposal,
+            amount_cents=payload.amount_cents,
+            currency=payload.currency,
+            estimated_delivery=payload.estimated_delivery,
+            terms_json=dump_json(payload.terms),
+        )
+        db.add(bid)
+        need.updated_at = utc_now()
+        db.flush()
+        audit(
+            db,
+            user,
+            "need.bid.create",
+            "need",
+            need.need_id,
+            {"bid_id": bid.bid_id, "provider_id": provider_id, "service_id": service_id},
+        )
+        db.commit()
+        db.refresh(bid)
+        await app.state.event_bus.publish(
+            db,
+            "need.bid.created",
+            {
+                "need_id": need.need_id,
+                "bid_id": bid.bid_id,
+                "provider_id": bid.provider_id,
+                "service_id": bid.service_id,
+                "agent_id": bid.agent_id,
+            },
+            need.author_user_id,
+        )
+        return need_bid_response(bid)
+
+    @app.get("/needs/{need_id}/bids", response_model=list[NeedBidResponse])
+    def list_need_bids(
+        need_id: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("community:read")),
+        limit: int = 100,
+    ) -> list[NeedBidResponse]:
+        need = visible_need(db, need_id, user)
+        stmt = select(NeedBid).where(NeedBid.need_id == need.need_id)
+        if need.visibility != "public" and need.author_user_id != user.user_id:
+            stmt = stmt.where(NeedBid.bidder_user_id == user.user_id)
+        bids = db.scalars(stmt.order_by(NeedBid.created_at.asc()).limit(min(limit, 200))).all()
+        return [need_bid_response(bid) for bid in bids]
+
+    @app.post("/needs/{need_id}/bids/{bid_id}/accept", response_model=NeedAcceptBidResponse)
+    async def accept_need_bid(
+        need_id: str,
+        bid_id: str,
+        payload: NeedAcceptBidRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("community:write")),
+    ) -> NeedAcceptBidResponse:
+        need = author_owned_need(db, need_id, user)
+        if need.status != "open":
+            raise HTTPException(status_code=400, detail=f"need is not open: {need.status}")
+        bid = db.get(NeedBid, bid_id)
+        if not bid or bid.need_id != need.need_id:
+            raise HTTPException(status_code=404, detail="bid not found for this need")
+        if bid.status != "proposed":
+            raise HTTPException(status_code=400, detail=f"bid is not proposed: {bid.status}")
+        if payload.create_task and not bid.service_id:
+            raise HTTPException(status_code=400, detail="accepted bid must include service_id when create_task is true")
+
+        group = ensure_need_group(db, user, need, payload)
+        if bid.agent_id:
+            agent = db.get(AgentAccount, bid.agent_id)
+            if not agent or agent.owner_user_id != bid.bidder_user_id:
+                raise HTTPException(status_code=400, detail="bid agent is no longer valid")
+            permissions = normalize_group_permissions(parse_json_list(group.default_permissions_json))
+            existing_member = db.scalar(
+                select(GroupMember)
+                .where(GroupMember.group_id == group.group_id)
+                .where(GroupMember.agent_id == agent.agent_id)
+            )
+            if existing_member:
+                existing_member.user_id = agent.owner_user_id
+                existing_member.handle_snapshot = agent.handle
+                existing_member.role = "member"
+                existing_member.permissions_json = json.dumps(permissions, sort_keys=True)
+                existing_member.status = "active"
+            else:
+                db.add(
+                    GroupMember(
+                        group_id=group.group_id,
+                        user_id=agent.owner_user_id,
+                        agent_id=agent.agent_id,
+                        handle_snapshot=agent.handle,
+                        role="member",
+                        permissions_json=json.dumps(permissions, sort_keys=True),
+                    )
+                )
+
+        task: ServiceTask | None = None
+        if payload.create_task:
+            service = db.get(ServiceProfile, bid.service_id)
+            if not service or service.status != "active":
+                raise HTTPException(status_code=404, detail="service profile not found")
+            provider = db.get(Provider, service.provider_id)
+            if not provider or provider.provider_id != bid.provider_id or provider.owner_user_id != bid.bidder_user_id:
+                raise HTTPException(status_code=400, detail="bid provider is no longer valid")
+            task_input = dict(payload.task_input or parse_json(need.input_json))
+            task_input.setdefault(
+                "community_need",
+                {
+                    "need_id": need.need_id,
+                    "title": need.title,
+                    "summary": need.summary,
+                    "description": need.description,
+                    "deliverables": parse_json(need.deliverables_json),
+                    "acceptance_criteria": parse_json(need.acceptance_criteria_json),
+                },
+            )
+            task = ServiceTask(
+                requester_user_id=user.user_id,
+                service_id=service.service_id,
+                provider_id=service.provider_id,
+                status="created",
+                input_json=dump_json(task_input),
+            )
+            db.add(task)
+            db.flush()
+            db.add(
+                GroupTaskContext(
+                    group_id=group.group_id,
+                    task_id=task.task_id,
+                    created_by_user_id=user.user_id,
+                    note=payload.note or f"Accepted community need bid {bid.bid_id}",
+                )
+            )
+            need.task_id = task.task_id
+
+        now = utc_now()
+        need.status = "assigned"
+        need.selected_bid_id = bid.bid_id
+        need.group_id = group.group_id
+        need.updated_at = now
+        bid.status = "accepted"
+        bid.updated_at = now
+        group.updated_at = now
+        rejected_bids = db.scalars(
+            select(NeedBid)
+            .where(NeedBid.need_id == need.need_id)
+            .where(NeedBid.bid_id != bid.bid_id)
+            .where(NeedBid.status == "proposed")
+        ).all()
+        for rejected_bid in rejected_bids:
+            rejected_bid.status = "rejected"
+            rejected_bid.updated_at = now
+        audit(
+            db,
+            user,
+            "need.bid.accept",
+            "need",
+            need.need_id,
+            {"bid_id": bid.bid_id, "group_id": group.group_id, "task_id": task.task_id if task else None},
+        )
+        db.commit()
+        db.refresh(need)
+        db.refresh(bid)
+        db.refresh(group)
+        if task:
+            db.refresh(task)
+        await app.state.event_bus.publish(
+            db,
+            "need.bid.accepted",
+            {
+                "need_id": need.need_id,
+                "bid_id": bid.bid_id,
+                "group_id": group.group_id,
+                "task_id": task.task_id if task else None,
+            },
+            bid.bidder_user_id,
+        )
+        await app.state.event_bus.publish(
+            db,
+            "need.assigned",
+            {
+                "need_id": need.need_id,
+                "bid_id": bid.bid_id,
+                "group_id": group.group_id,
+                "task_id": task.task_id if task else None,
+            },
+            user.user_id,
+        )
+        return NeedAcceptBidResponse(
+            need=need_response(need).model_dump(),
+            bid=need_bid_response(bid).model_dump(),
+            group=group_response(group).model_dump(),
+            task=task_response(task).model_dump() if task else None,
+        )
 
     @app.post("/providers", response_model=ProviderResponse, status_code=status.HTTP_201_CREATED)
     async def create_provider(

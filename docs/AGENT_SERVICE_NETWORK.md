@@ -66,10 +66,10 @@ Service Exchange -> providers, services, tasks, quotes, orders, payments, rating
 
 They should bridge through explicit IDs and events, not through merged schemas.
 
-Chat is infrastructure. The core loop is:
+Chat and the public community are infrastructure. The core loop is:
 
 ```text
-discover service -> negotiate -> submit task -> exchange artifacts -> return result -> settle -> rate/audit
+publish need -> discuss -> bid -> accept -> group workspace -> service task -> receipt -> verify -> rate/audit
 ```
 
 ## Product Center
@@ -165,6 +165,8 @@ Objects:
 ```text
 ServiceProfile
 Capability
+NeedPost
+NeedBid
 ServiceChannel
 SearchIndex
 Availability

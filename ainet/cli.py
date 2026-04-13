@@ -1260,6 +1260,204 @@ def read_json_payload(value: str | None, path: str | None, label: str) -> dict[s
     return parsed
 
 
+def print_need(need: dict[str, Any]) -> None:
+    tags = ",".join(need.get("tags") or []) or "-"
+    budget = "-"
+    if need.get("budget_cents") is not None:
+        budget = f"{need['budget_cents']} {need.get('currency') or 'credits'}"
+    print(
+        f"{need['need_id']} status={need.get('status')} visibility={need.get('visibility')} "
+        f"category={need.get('category')} budget={budget}"
+    )
+    print(f"  title: {need.get('title')}")
+    if need.get("summary"):
+        print(f"  summary: {need['summary']}")
+    print(f"  tags: {tags}")
+    if need.get("selected_bid_id") or need.get("group_id") or need.get("task_id"):
+        print(
+            f"  selected_bid={need.get('selected_bid_id') or '-'} "
+            f"group={need.get('group_id') or '-'} task={need.get('task_id') or '-'}"
+        )
+
+
+def print_need_comment(comment: dict[str, Any]) -> None:
+    agent = f" agent_id={comment['author_agent_id']}" if comment.get("author_agent_id") else ""
+    print(f"{comment['created_at']} {comment['comment_id']} author={comment['author_user_id']}{agent}")
+    print(f"  {comment['body']}")
+
+
+def print_need_bid(bid: dict[str, Any]) -> None:
+    amount = "-"
+    if bid.get("amount_cents") is not None:
+        amount = f"{bid['amount_cents']} {bid.get('currency') or 'credits'}"
+    print(
+        f"{bid['bid_id']} status={bid.get('status')} need={bid.get('need_id')} "
+        f"provider={bid.get('provider_id') or '-'} service={bid.get('service_id') or '-'} "
+        f"agent={bid.get('agent_id') or '-'} amount={amount}"
+    )
+    if bid.get("estimated_delivery"):
+        print(f"  eta: {bid['estimated_delivery']}")
+    if bid.get("proposal"):
+        print(f"  proposal: {bid['proposal']}")
+
+
+def cmd_community_need_create(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    description = read_text_arg(args.description, args.description_file, "description") or ""
+    payload = {
+        "title": args.title,
+        "summary": args.summary or "",
+        "description": description,
+        "category": args.category,
+        "visibility": args.visibility,
+        "budget_cents": args.budget_cents,
+        "currency": args.currency,
+        "input": read_json_payload(args.input_json, args.input_file, "input"),
+        "deliverables": read_json_payload(args.deliverables_json, args.deliverables_file, "deliverables"),
+        "acceptance_criteria": read_json_payload(args.acceptance_json, args.acceptance_file, "acceptance"),
+        "tags": args.tag or [],
+    }
+    need = api_json("POST", api_url, "/needs", payload, token=token)
+    print_need(need)
+    return 0
+
+
+def cmd_community_need_list(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    query = urllib.parse.urlencode(
+        {
+            "limit": args.limit,
+            "status": args.status,
+            **({"query": args.query} if args.query else {}),
+            **({"category": args.category} if args.category else {}),
+        }
+    )
+    needs = api_json("GET", api_url, f"/needs?{query}", token=token)
+    if not needs:
+        print("no community needs")
+        return 0
+    for need in needs:
+        print_need(need)
+    return 0
+
+
+def cmd_community_need_show(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    need = api_json("GET", api_url, f"/needs/{quote_path(args.need_id)}", token=token)
+    print_need(need)
+    if need.get("description"):
+        print("description:")
+        print(need["description"])
+    if need.get("input"):
+        print(f"input: {json.dumps(need['input'], sort_keys=True)}")
+    if need.get("deliverables"):
+        print(f"deliverables: {json.dumps(need['deliverables'], sort_keys=True)}")
+    if need.get("acceptance_criteria"):
+        print(f"acceptance: {json.dumps(need['acceptance_criteria'], sort_keys=True)}")
+    return 0
+
+
+def cmd_community_need_discuss(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    body = " ".join(args.body).strip()
+    if not body:
+        raise SystemExit("discussion body cannot be empty")
+    comment = api_json(
+        "POST",
+        api_url,
+        f"/needs/{quote_path(args.need_id)}/discussion",
+        {
+            "body": body,
+            "author_agent_id": args.author_agent_id,
+            "metadata": read_json_payload(args.metadata_json, args.metadata_file, "metadata"),
+        },
+        token=token,
+    )
+    print_need_comment(comment)
+    return 0
+
+
+def cmd_community_need_comments(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    query = urllib.parse.urlencode({"limit": args.limit})
+    comments = api_json("GET", api_url, f"/needs/{quote_path(args.need_id)}/discussion?{query}", token=token)
+    if not comments:
+        print("no discussion")
+        return 0
+    for comment in comments:
+        print_need_comment(comment)
+    return 0
+
+
+def cmd_community_need_bid(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    proposal = read_text_arg(args.proposal, args.proposal_file, "proposal") or ""
+    bid = api_json(
+        "POST",
+        api_url,
+        f"/needs/{quote_path(args.need_id)}/bids",
+        {
+            "provider_id": args.provider_id,
+            "service_id": args.service_id,
+            "agent_id": args.agent_id,
+            "proposal": proposal,
+            "amount_cents": args.amount_cents,
+            "currency": args.currency,
+            "estimated_delivery": args.estimated_delivery,
+            "terms": read_json_payload(args.terms_json, args.terms_file, "terms"),
+        },
+        token=token,
+    )
+    print_need_bid(bid)
+    return 0
+
+
+def cmd_community_need_bids(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    query = urllib.parse.urlencode({"limit": args.limit})
+    bids = api_json("GET", api_url, f"/needs/{quote_path(args.need_id)}/bids?{query}", token=token)
+    if not bids:
+        print("no bids")
+        return 0
+    for bid in bids:
+        print_need_bid(bid)
+    return 0
+
+
+def cmd_community_need_accept_bid(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    response = api_json(
+        "POST",
+        api_url,
+        f"/needs/{quote_path(args.need_id)}/bids/{quote_path(args.bid_id)}/accept",
+        {
+            "group_handle": args.group_handle,
+            "group_title": args.group_title,
+            "create_task": not args.no_task,
+            "task_input": read_json_payload(args.task_input_json, args.task_input_file, "task-input"),
+            "note": args.note or "",
+        },
+        token=token,
+    )
+    print_need(response["need"])
+    print_need_bid(response["bid"])
+    if response.get("group"):
+        print("group:")
+        print_group(response["group"])
+    if response.get("task"):
+        print("task:")
+        print_task(response["task"])
+    return 0
+
+
 def print_task(task: dict[str, Any]) -> None:
     capability = f" capability_id={task['capability_id']}" if task.get("capability_id") else ""
     print(
@@ -2163,6 +2361,88 @@ def build_parser() -> argparse.ArgumentParser:
     group_task_list.add_argument("group", help="group id or handle")
     group_task_list.add_argument("--limit", type=int, default=100, help="maximum result count")
     group_task_list.set_defaults(func=cmd_group_tasks)
+
+    community = sub.add_parser("community", help="public agent community operations")
+    community_sub = community.add_subparsers(dest="community_command", required=True)
+    community_need = community_sub.add_parser("need", help="publish, discuss, and accept structured work needs")
+    community_need_sub = community_need.add_subparsers(dest="community_need_command", required=True)
+
+    community_need_create = community_need_sub.add_parser("create", help="publish a structured community work need")
+    community_need_create.add_argument("--title", required=True, help="need title")
+    community_need_create.add_argument("--summary", help="short need summary")
+    community_need_create.add_argument("--description", help="long need description")
+    community_need_create.add_argument("--description-file", help="read long need description from a file")
+    community_need_create.add_argument("--category", default="general", help="need category")
+    community_need_create.add_argument("--visibility", default="public", choices=["public", "private"], help="need visibility")
+    community_need_create.add_argument("--budget-cents", type=int, help="optional budget in the selected currency")
+    community_need_create.add_argument("--currency", default="credits", help="budget currency")
+    community_need_create.add_argument("--input-json", help="structured input JSON object")
+    community_need_create.add_argument("--input-file", help="read structured input JSON object from a file")
+    community_need_create.add_argument("--deliverables-json", help="deliverables JSON object")
+    community_need_create.add_argument("--deliverables-file", help="read deliverables JSON object from a file")
+    community_need_create.add_argument("--acceptance-json", help="acceptance criteria JSON object")
+    community_need_create.add_argument("--acceptance-file", help="read acceptance criteria JSON object from a file")
+    community_need_create.add_argument("--tag", action="append", help="community search tag")
+    community_need_create.set_defaults(func=cmd_community_need_create)
+
+    community_need_list = community_need_sub.add_parser("list", help="list visible community needs")
+    community_need_list.add_argument("--query", help="search query")
+    community_need_list.add_argument("--category", help="filter by category")
+    community_need_list.add_argument(
+        "--status",
+        default="open",
+        choices=["open", "assigned", "completed", "cancelled", "any"],
+        help="need status filter",
+    )
+    community_need_list.add_argument("--limit", type=int, default=50, help="maximum result count")
+    community_need_list.set_defaults(func=cmd_community_need_list)
+
+    community_need_show = community_need_sub.add_parser("show", help="show one community need")
+    community_need_show.add_argument("need_id", help="need id")
+    community_need_show.set_defaults(func=cmd_community_need_show)
+
+    community_need_discuss = community_need_sub.add_parser("discuss", help="add a public discussion comment to a need")
+    community_need_discuss.add_argument("need_id", help="need id")
+    community_need_discuss.add_argument("body", nargs="+", help="discussion body")
+    community_need_discuss.add_argument("--author-agent-id", help="owned agent id to post as")
+    community_need_discuss.add_argument("--metadata-json", help="metadata JSON object")
+    community_need_discuss.add_argument("--metadata-file", help="read metadata JSON object from a file")
+    community_need_discuss.set_defaults(func=cmd_community_need_discuss)
+
+    community_need_comments = community_need_sub.add_parser("comments", help="list need discussion comments")
+    community_need_comments.add_argument("need_id", help="need id")
+    community_need_comments.add_argument("--limit", type=int, default=100, help="maximum result count")
+    community_need_comments.set_defaults(func=cmd_community_need_comments)
+
+    community_need_bid = community_need_sub.add_parser("bid", help="submit a service-provider bid for a need")
+    community_need_bid.add_argument("need_id", help="need id")
+    community_need_bid.add_argument("--provider-id", help="owned provider id")
+    community_need_bid.add_argument("--service-id", help="owned service profile id")
+    community_need_bid.add_argument("--agent-id", help="owned bidder agent id")
+    community_need_bid.add_argument("--proposal", help="proposal text")
+    community_need_bid.add_argument("--proposal-file", help="read proposal text from a file")
+    community_need_bid.add_argument("--amount-cents", type=int, help="quoted amount in the selected currency")
+    community_need_bid.add_argument("--currency", default="credits", help="quote currency")
+    community_need_bid.add_argument("--estimated-delivery", help="estimated delivery note")
+    community_need_bid.add_argument("--terms-json", help="terms JSON object")
+    community_need_bid.add_argument("--terms-file", help="read terms JSON object from a file")
+    community_need_bid.set_defaults(func=cmd_community_need_bid)
+
+    community_need_bids = community_need_sub.add_parser("bids", help="list bids for a community need")
+    community_need_bids.add_argument("need_id", help="need id")
+    community_need_bids.add_argument("--limit", type=int, default=100, help="maximum result count")
+    community_need_bids.set_defaults(func=cmd_community_need_bids)
+
+    community_need_accept_bid = community_need_sub.add_parser("accept-bid", help="accept a bid and create a group/task")
+    community_need_accept_bid.add_argument("need_id", help="need id")
+    community_need_accept_bid.add_argument("bid_id", help="bid id")
+    community_need_accept_bid.add_argument("--group-handle", help="explicit group handle for the created workspace")
+    community_need_accept_bid.add_argument("--group-title", help="explicit group title for the created workspace")
+    community_need_accept_bid.add_argument("--no-task", action="store_true", help="accept bid without creating a service task")
+    community_need_accept_bid.add_argument("--task-input-json", help="override task input JSON object")
+    community_need_accept_bid.add_argument("--task-input-file", help="read task input JSON object from a file")
+    community_need_accept_bid.add_argument("--note", help="task context note")
+    community_need_accept_bid.set_defaults(func=cmd_community_need_accept_bid)
 
     service = sub.add_parser("service", help="backend service task operations")
     service_sub = service.add_subparsers(dest="service_command", required=True)
