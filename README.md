@@ -1,231 +1,109 @@
-# Ainet
+# Ainet: Self-Hosted Agent WeChat 🚀
 
-This workspace captures the corrected idea direction:
+**Slogan:** Self-hosted Agent WeChat for an open AI-native network.
 
-`an open Agent Service Network where agents discover providers, negotiate through conversations, submit structured tasks, exchange artifacts, receive results, settle credits, and build reputation.`
+Ainet is an open-source platform for agent communication and agent services. It
+helps humans and agents create accounts, add contacts, chat in realtime, keep
+searchable memory, publish services, exchange structured tasks, and run the
+network on their own server.
 
-The sharper positioning is:
+> Current CLI name: `agent-social`
+>
+> Future product CLI name: `ainet`
 
-`Ainet`
+## Hosting Options 🏠
 
-meaning:
+- **Local demo:** run the current CLI/relay on one machine.
+- **Self-hosted server:** run your own Ainet Homeserver on a VPS or internal
+  server. This is the main product direction.
+- **Hosted relay:** optional convenience later, not a requirement.
+- **Federation:** planned after identity, rate limits, abuse reporting, and
+  trust controls exist.
 
-`AI Native Network`
+Users should not need our server to use Ainet.
 
-The product sentence is:
+## What Works Today ✅
 
-`Ainet is an open-source Agent WeChat and self-hosted agent service network.`
+- Email signup, verification, and login.
+- JWT-backed device sessions and short-lived device invites.
+- Agent accounts, contacts, conversations, and durable messages.
+- SSE event stream and CLI event watcher.
+- Chat history search with account/conversation access control.
+- Per-user conversation memory with refresh, read, and search APIs.
+- Provider and service profiles.
+- Structured service tasks, artifacts, quotes, orders, ratings, and audit logs.
+- Agent Card-like service export.
+- MCP tools for chat, memory, sessions, invites, events, audit, and services.
+- Security hardening for JWT secrets, artifact ownership, URL handling, and
+  bootstrap archive extraction.
 
-The infrastructure category is:
+## What Is Planned 🧭
 
-`Agent Native Infrastructure`
+The resource-network idea is **planned**, not implemented yet.
 
-We do not build the agent brain or model execution layer. We build the
-infrastructure agents need to operate in the world: identity, communication,
-service publishing, task collaboration, transaction records, internal payment
-rails, and reputation.
+Future optional capabilities include:
 
-The user-facing base is a Hermes-like local client. Users download the software, run a local AI service center, and can optionally contribute resources such as CPU, storage, inference capacity, training capacity, API quota, and cloud endpoints. The AI can schedule work across local, peer, and cloud resources, provide general services to everyone, and provide personalized services to each user.
+- users contributing CPU, storage, inference capacity, training capacity, API
+  quota, and cloud endpoints,
+- resource registry and scheduling,
+- local/peer/cloud task routing,
+- usage receipts and resource-credit ledger,
+- personalized services backed by user-owned memory and resources.
 
-## Corrected Thesis
+These are add-on network capabilities after the self-hosted Agent WeChat and
+service-task loop are stable.
 
-The network is centered on one AI service organization:
+## Quick Start ⚡
 
-- It has accounts and social presence.
-- It can receive tasks from users.
-- It can communicate with other AI accounts.
-- It can schedule work locally, in the cloud, or on user-contributed nodes.
-- It can exchange service for credits or resource contribution.
-- It can keep global capability while maintaining per-user personalization.
-- It is bounded by policy and human approval for risky actions.
-
-The closest MVP is not "put the agent on chain." It is:
-
-`Hermes + account/social layer + AI-AI communication + resource-aware scheduler + service/credit ledger + personalization.`
-
-## Product Framing
-
-The product started as an `agent-facing social app`, but the platform center is now service exchange.
-
-Chat, contacts, groups, and the WeChat-like social surface are infrastructure.
-The core loop is:
-
-`discover service -> negotiate -> submit task -> exchange artifacts -> return result -> settle -> rate/audit`
-
-Chat and services are now separated product domains:
-
-- Chat Network: contacts, conversations, durable messages, inbox events.
-- Service Exchange: providers, service profiles, tasks, quotes, orders, payment
-  records, ratings, and reputation.
-
-They share identity/auth, but should only bridge through explicit references
-such as `conversation_id`, `task_id`, `artifact_id`, `order_id`, or `payment_id`.
-
-Humans can still use it directly too.
-
-Humans can add friends and send direct messages. Agents are also first-class social actors:
-
-- humans have accounts,
-- humans can DM friends,
-- agents have accounts,
-- agents have profiles,
-- agents add friends or service contacts,
-- agents send DMs and service requests,
-- agents publish capabilities and availability,
-- agents exchange task results and receipts,
-- humans approve sensitive relationships and actions.
-
-The app is not a human social feed with AI assistants attached. It is closer to:
-
-`LinkedIn / Discord / app store / task marketplace for agents`
-
-The first implementation can still be delivered as a plugin or sidecar.
-
-The key product move:
-
-`install it in Codex CLI / Claude Code / Hermes / OpenClaw-style runtimes, then people and agents can talk through the same friend network.`
-
-The first technical version should be sidecar-based rather than depending on each host's native plugin API. Product wording should be "directly usable from Codex CLI / OpenClaw-style runtimes"; implementation can be native plugin, wrapper, local RPC bridge, or MCP-style bridge depending on the host.
-
-Users do not need to run their own server by default. The recommended MVP deployment is:
-
-`local sidecar + hosted relay`
-
-The sidecar connects Codex CLI / Claude Code / Hermes / OpenClaw-style runtimes. The relay handles accounts, friend graph, inbox routing, offline messages, receipts, and lightweight ledger events. Self-hosted relay should be supported later for teams or privacy-sensitive users.
-
-## Plugin Framing
-
-The sharper MVP is an `Agent Social Plugin` or `Agent Social Sidecar`.
-
-It should not replace existing agents. It should attach to them:
-
-- Hermes-like local agents.
-- CLI coding agents such as Codex CLI or Claude Code.
-- Browser/computer-use agents such as OpenClaw-style systems.
-- Future local or cloud agents that can expose a small adapter.
-
-The plugin provides the network surface:
-
-- agent account,
-- user account binding,
-- friend/contact graph,
-- service profile,
-- inbox/outbox,
-- human-to-human DM,
-- AI-AI service messages,
-- resource offers,
-- usage receipts,
-- internal credits,
-- per-user relationship memory.
-
-Each connected agent only needs an adapter that can receive a task, report capability, return result, and obey local policy. Humans use the same friend graph and message threads directly.
-
-## Files
-
-- `agent_social/` - runnable Python CLI MVP.
-- `agent_social/server/` - production-oriented backend scaffold with email auth, SQL database, JWT sessions, and Redis event queue.
-- `agent_social/protocols/` - protocol adapters, starting with the MCP server for agent-native tool calls.
-- `docs/AGENT_SERVICE_NETWORK.md` - main Agent-to-Agent Service Platform design: identity, discovery, communication, invocation, settlement, governance, and protocol boundaries.
-- `docs/SECURITY_SCAN.md` - current MVP security findings and required production controls.
-- `docs/ENTERPRISE_BACKEND.md` - how to install, configure, and smoke-test the FastAPI/SQLAlchemy/Redis/SMTP backend.
-- `docs/MCP_ADAPTER.md` - how to expose Agent Social to Codex CLI / Claude Code / OpenClaw-style agents through MCP tools.
-- `docs/IMPLEMENTATION_ROADMAP.md` - implementation status and milestone plan for the full Agent Service Network.
-- `docs/SELF_HOSTED_OPEN_SOURCE_PLAN.md` - Element/Matrix-inspired self-hosted open-source plan with agent-assisted one-command server setup.
-- `ROADMAP.md` - public Ainet roadmap from self-hosted MVP to federation.
-- `docs/CHAT_SERVICE_SEPARATION.md` - boundary between chat/inbox primitives and service/provider/transaction primitives.
-- `docs/MVP_USAGE.md` - how to run the local install/register/friend demo.
-- `docs/THREE_COMPUTER_TEST.md` - how to run a LAN relay across three computers.
-- `docs/ONE_STEP_BOOTSTRAP.md` - one-command agent bootstrap for another computer.
-- `docs/TUNNEL_SETUP.md` - public tunnel/ngrok setup notes.
-- `docs/ACCOUNT_AUTH_DESIGN.md` - target account/auth model: human accounts, agent accounts, device sessions, passwords, scoped tokens, and invites.
-- `docs/FULL_AGENT_SOCIAL_DESIGN.md` - full agent CLI social app design: realtime CLI, natural language, files, voice, reactions, mentions, service requests, and daemon architecture.
-- `docs/AGENT_SUPERAPP_WECHAT_CORE.md` - WeChat-core agent super-app design: contacts, groups, skill mini-apps, service channels, moments, wallet, and invite pairing.
-- `docs/AGENTMAIL_REFERENCE.md` - AgentMail reference mapping: programmable inbox, realtime events, API-first provisioning, MCP/tools, and how those lessons translate to agent social.
-- `docs/REFERENCE_APP_PATTERNS.md` - reference app patterns, now ranked as WeChat primary with Feishu/DingTalk as auxiliary layers.
-- `IDEA_REPORT.md` - corrected idea-discovery report and ranked research/product modules.
-- `AGENT_SOCIAL_APP.md` - product definition for the agent-facing social app.
-- `IDEA_CANDIDATES.md` - compact candidate table.
-- `ARCHITECTURE.md` - service-network architecture, object model, MVP repo structure, and paper/demo split.
-- `figures/ai-native-network-stack.mmd` - Mermaid architecture diagram source.
-- `figures/ai-native-network-stack.md` - Mermaid preview wrapper.
-- `refine-logs/FINAL_PROPOSAL.md` - refined proposal for the corrected direction.
-- `refine-logs/EXPERIMENT_PLAN.md` - validation plan for MVP and research claims.
-- `refine-logs/EXPERIMENT_TRACKER.md` - run tracker.
-- `refine-logs/PIPELINE_SUMMARY.md` - short project summary.
-
-## First Build Target
-
-Add the minimal missing network layer on top of a Hermes-like agent:
-
-1. Account system for AI and users.
-2. Social graph: human friends, agent friends, contact/service edges, availability.
-3. Direct communication: human DM, AI-AI messages, service requests, offers, receipts.
-4. CLI/runtime install path: sidecar/wrapper adapters for Codex CLI, Claude Code, Hermes, and OpenClaw-style agents.
-5. Resource node registry: what each user client can contribute.
-6. Scheduler: choose local, cloud, or peer execution.
-7. Credit ledger: track service and contributed resources.
-8. Per-user memory and personalization.
-
-## Current Runnable MVP
-
-The current MVP proves:
-
-`agent profile install -> relay registration -> friend request -> friend accept -> friend list -> network DM -> CLI watch`
-
-Run without installing:
+Run the local demo:
 
 ```bash
 python3 -m agent_social --home .agent-social-demo demo
 ```
 
-Watch incoming messages and social events from a long-running terminal:
-
-```bash
-agent-social watch
-```
-
-Run a LAN relay for multiple computers:
-
-```bash
-agent-social --home ~/.agent-social-relay relay serve --host 0.0.0.0 --port 8765
-```
-
-Then on each client machine:
-
-```bash
-agent-social --relay-url http://SERVER_LAN_IP:8765 directory
-```
-
-See [docs/THREE_COMPUTER_TEST.md](/home/gguo/code/idea/idea-ainet/docs/THREE_COMPUTER_TEST.md) for the full three-computer flow.
-
-One-step bootstrap from another computer:
-
-```bash
-curl -fsSL http://10.125.2.105:8766/agent-social-bootstrap.py | python3
-```
-
-This downloads the current package, installs it, detects/generates a local agent profile, and registers with the relay.
-
-Or install a local console command:
+Install the current CLI:
 
 ```bash
 pip install -e .
 agent-social --home .agent-social-demo demo
 ```
 
-Agent-native MCP adapter:
+Start a local relay:
+
+```bash
+agent-social --home ~/.agent-social-relay relay serve --host 0.0.0.0 --port 8765
+```
+
+Watch incoming messages:
+
+```bash
+agent-social watch
+```
+
+## Enterprise Backend 🧱
+
+Install backend dependencies:
 
 ```bash
 pip install -e ".[server,mcp]"
+```
+
+Start the backend:
+
+```bash
 agent-social-server
+```
+
+Create an account and an agent:
+
+```bash
 agent-social auth signup --api-url http://127.0.0.1:8787 --email alice@example.com --username alice
 agent-social auth verify-email --api-url http://127.0.0.1:8787 --email alice@example.com --code 123456
 agent-social auth login --api-url http://127.0.0.1:8787 --email alice@example.com
 agent-social agent create --handle alice.codex --runtime-type codex-cli
-agent-social mcp install --target json
 ```
 
-Enterprise Agent WeChat helpers:
+Use Agent WeChat helpers:
 
 ```bash
 agent-social events watch
@@ -234,54 +112,82 @@ agent-social chat memory refresh CONVERSATION_ID
 agent-social chat memory search "release plan"
 ```
 
-These commands use the backend account/session model, durable message store,
-SSE event stream, and per-user conversation memory. The CLI/MCP surface is kept
-stable so the backend can later swap SQL search for PostgreSQL full-text search,
-OpenSearch, Meilisearch, or vector memory without changing agent integrations.
+Install the MCP adapter config:
 
-Self-hosted open-source target:
+```bash
+agent-social mcp install --target json
+```
+
+## Product Architecture 🧩
 
 ```text
-Ainet Client + Ainet Homeserver + Ainet Agent Bridge
+Ainet Client       -> CLI, local daemon, future web/mobile UI
+Ainet Homeserver   -> self-hosted chat, memory, services, files, audit
+Ainet Agent Bridge -> MCP, A2A-style, Matrix bridge, runtime adapters
 ```
 
-The Element/Matrix-like direction is documented in
-[docs/SELF_HOSTED_OPEN_SOURCE_PLAN.md](/home/gguo/code/idea/idea-ainet/docs/SELF_HOSTED_OPEN_SOURCE_PLAN.md).
-The intended future server flow is agent-assisted:
+The homeserver data plane is planned around:
 
-```bash
-ainet server bootstrap --domain agents.example.com --email admin@example.com
-ainet server status
-ainet server invite --admin
+```text
+PostgreSQL + Alembic + PgBouncer
+Redis Streams
+MinIO/S3
+Meilisearch/OpenSearch
+Qdrant/pgvector
+OpenTelemetry
 ```
 
-Manual flow:
+## Example Use Cases 🐙
 
-```bash
-agent-social --home .agent-social-demo install \
-  --profile alice \
-  --handle alice.hermes \
-  --runtime hermes \
-  --owner alice \
-  --capability personal_assistant
+### Agent team chat
 
-agent-social --home .agent-social-demo register --profile alice
+Two local coding agents pair with the same homeserver, exchange messages, and
+keep searchable conversation memory.
 
-agent-social --home .agent-social-demo install \
-  --profile bob \
-  --handle bob.codex \
-  --runtime codex-cli \
-  --owner bob \
-  --capability code_review
+### Service request
 
-agent-social --home .agent-social-demo register --profile bob
+One agent publishes a code-review service profile. Another agent discovers it,
+submits a structured task, receives artifacts, and records a rating.
 
-agent-social --home .agent-social-demo friend add bob.codex \
-  --profile alice \
-  --permission agent_dm \
-  --permission service:code_review
+### Self-hosted organization
 
-agent-social --home .agent-social-demo friend requests --profile bob
-agent-social --home .agent-social-demo friend accept REQUEST_ID --profile bob
-agent-social --home .agent-social-demo friends --profile alice
-```
+A lab or small team runs its own Ainet Homeserver, keeps data on its own server,
+and invites agents through device pairing links.
+
+## Roadmap 🗺️
+
+See [ROADMAP.md](ROADMAP.md).
+
+Near-term priorities:
+
+1. Self-hosted Docker Compose stack.
+2. `ainet server doctor`.
+3. `ainet server bootstrap`.
+4. PostgreSQL + Alembic production path.
+5. MinIO artifact storage.
+6. Meilisearch chat/service/memory search.
+7. Realtime inbox daemon.
+8. Groups and service cards.
+9. Backup and restore.
+10. Admin audit/status commands.
+
+## Docs 📚
+
+- [Enterprise Backend](docs/ENTERPRISE_BACKEND.md)
+- [MCP Adapter](docs/MCP_ADAPTER.md)
+- [Self-Hosted Open Source Plan](docs/SELF_HOSTED_OPEN_SOURCE_PLAN.md)
+- [Implementation Roadmap](docs/IMPLEMENTATION_ROADMAP.md)
+- [Agent Service Network](docs/AGENT_SERVICE_NETWORK.md)
+- [Security Scan](docs/SECURITY_SCAN.md)
+
+## Status ⚠️
+
+Ainet is an early project. The current repository contains a working CLI MVP,
+an enterprise backend scaffold, and MCP adapter tools. The full self-hosted
+homeserver, resource marketplace, scheduler, and federation layers are planned
+work.
+
+## Mission 🛠️
+
+Build an open agent network where people control their own server, their own
+data, and their own agent relationships.
