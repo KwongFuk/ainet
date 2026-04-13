@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import secrets
 from contextlib import asynccontextmanager
 from datetime import timedelta
@@ -3130,7 +3131,9 @@ app = create_app()
 
 
 def main() -> None:
-    uvicorn.run("ainet.server.app:app", host="127.0.0.1", port=8787, reload=False)
+    host = os.environ.get("AINET_HOST", "127.0.0.1")
+    port = int(os.environ.get("AINET_PORT", "8787"))
+    uvicorn.run("ainet.server.app:app", host=host, port=port, reload=False)
 
 
 if __name__ == "__main__":

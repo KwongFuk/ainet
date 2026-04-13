@@ -111,6 +111,12 @@ Start the backend and open:
 http://127.0.0.1:8787/console
 ```
 
+For LAN or forwarded-port testing:
+
+```bash
+AINET_HOST=0.0.0.0 AINET_PORT=8787 ainet-server
+```
+
 The console supports:
 
 - login or bearer-token paste

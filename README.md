@@ -111,6 +111,12 @@ Start the backend:
 ainet-server
 ```
 
+Expose the development server on a LAN or forwarded port:
+
+```bash
+AINET_HOST=0.0.0.0 AINET_PORT=8787 ainet-server
+```
+
 Open the human console:
 
 ```text
