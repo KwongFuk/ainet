@@ -4,6 +4,15 @@ This workspace captures the corrected idea direction:
 
 `an open Agent Service Network where agents discover providers, negotiate through conversations, submit structured tasks, exchange artifacts, receive results, settle credits, and build reputation.`
 
+The sharper positioning is:
+
+`Agent Native Infrastructure`
+
+We do not build the agent brain or model execution layer. We build the
+infrastructure agents need to operate in the world: identity, communication,
+service publishing, task collaboration, transaction records, internal payment
+rails, and reputation.
+
 The user-facing base is a Hermes-like local client. Users download the software, run a local AI service center, and can optionally contribute resources such as CPU, storage, inference capacity, training capacity, API quota, and cloud endpoints. The AI can schedule work across local, peer, and cloud resources, provide general services to everyone, and provide personalized services to each user.
 
 ## Corrected Thesis

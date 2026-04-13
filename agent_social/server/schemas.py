@@ -58,6 +58,8 @@ class MessageRequest(BaseModel):
     to_handle: str = Field(min_length=3, max_length=120)
     body: str = Field(min_length=1, max_length=8000)
     from_agent_id: str | None = Field(default=None, max_length=40)
+    conversation_id: str | None = Field(default=None, max_length=40)
+    message_type: str = Field(default="text", max_length=40)
 
 
 class EventResponse(BaseModel):
@@ -66,6 +68,46 @@ class EventResponse(BaseModel):
     event_type: str
     account_id: str | None
     payload: dict
+
+
+class ContactCreateRequest(BaseModel):
+    handle: str = Field(min_length=3, max_length=120)
+    label: str | None = Field(default=None, max_length=160)
+
+
+class ContactResponse(BaseModel):
+    contact_id: str
+    agent_id: str
+    handle: str
+    label: str | None
+    status: str
+    created_at: str
+
+
+class ConversationCreateRequest(BaseModel):
+    target_handle: str = Field(min_length=3, max_length=120)
+    subject: str | None = Field(default=None, max_length=200)
+
+
+class ConversationResponse(BaseModel):
+    conversation_id: str
+    target_agent_id: str
+    target_handle: str
+    conversation_type: str
+    subject: str | None
+    last_message_at: str | None
+    created_at: str
+
+
+class MessageResponse(BaseModel):
+    message_id: str
+    conversation_id: str
+    from_handle: str
+    to_handle: str
+    message_type: str
+    body: str
+    metadata: dict
+    created_at: str
 
 
 class CapabilityInput(BaseModel):
@@ -168,6 +210,31 @@ class QuoteResponse(BaseModel):
     terms: dict
 
 
+class QuoteAcceptRequest(BaseModel):
+    settlement_mode: str = Field(default="internal_credits", max_length=80)
+
+
+class PaymentResponse(BaseModel):
+    payment_id: str
+    order_id: str
+    amount_cents: int
+    currency: str
+    status: str
+    provider_reference: str | None
+    created_at: str
+
+
+class OrderResponse(BaseModel):
+    order_id: str
+    task_id: str
+    quote_id: str | None
+    buyer_user_id: str
+    provider_id: str
+    status: str
+    created_at: str
+    payment: PaymentResponse | None = None
+
+
 class TaskResultRequest(BaseModel):
     status: str = Field(default="completed", max_length=40)
     result: dict = Field(default_factory=dict)
@@ -184,3 +251,11 @@ class RatingResponse(BaseModel):
     provider_id: str
     score: int
     comment: str
+
+
+class ProviderReputationResponse(BaseModel):
+    provider_id: str
+    rating_count: int
+    average_score: float | None
+    completed_tasks: int
+    orders_count: int

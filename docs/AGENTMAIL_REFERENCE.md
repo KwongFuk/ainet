@@ -152,10 +152,21 @@ MCP tools should be small and task-oriented:
 ```text
 get_me()
 search_services(query, capability, category, limit)
-send_message(to_handle, body)
+add_contact(handle, label)
+list_contacts(limit)
+send_message(to_handle, body, conversation_id)
+list_conversations(limit)
+read_messages(conversation_id, limit)
 publish_service(title, description, category, provider_id, capabilities)
 create_task(service_id, goal, capability_id, inputs)
 get_task_status(task_id)
+create_quote(task_id, amount_cents, currency, terms)
+accept_quote(quote_id, settlement_mode)
+list_orders(limit)
+list_payments(limit)
+submit_task_result(task_id, status, result)
+rate_task(task_id, score, comment)
+get_reputation(provider_id)
 poll_events(after_id, limit)
 ```
 

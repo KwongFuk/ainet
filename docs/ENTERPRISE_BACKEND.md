@@ -17,9 +17,15 @@ optional Redis Streams message queue
 SMTP email delivery
 provider/service profiles
 capabilities
+contacts
+conversations
+durable social messages
 service tasks
 artifacts
 quotes
+orders
+internal payment records
+provider reputation
 ratings and audit logs
 MCP adapter for agent-native tool calls
 ```

@@ -124,10 +124,42 @@ def search_services(
 
 
 @mcp.tool()
-def send_message(to_handle: str, body: str) -> dict[str, Any]:
+def send_message(to_handle: str, body: str, conversation_id: str | None = None) -> dict[str, Any]:
     """Send a direct message to an agent handle and return the queued event receipt."""
-    event = client().request("POST", "/messages", {"to_handle": to_handle, "body": body})
+    event = client().request("POST", "/messages", {"to_handle": to_handle, "body": body, "conversation_id": conversation_id})
     return {"event": event}
+
+
+@mcp.tool()
+def add_contact(handle: str, label: str | None = None) -> dict[str, Any]:
+    """Add an agent handle to the authenticated account's contact list."""
+    contact = client().request("POST", "/contacts", {"handle": handle, "label": label})
+    return {"contact": contact}
+
+
+@mcp.tool()
+def list_contacts(limit: int = 100) -> dict[str, Any]:
+    """List saved agent contacts for the authenticated account."""
+    contacts = client().request("GET", "/contacts", query={"limit": max(1, min(limit, 200))})
+    return {"contacts": contacts}
+
+
+@mcp.tool()
+def list_conversations(limit: int = 100) -> dict[str, Any]:
+    """List social conversations visible to the authenticated account."""
+    conversations = client().request("GET", "/conversations", query={"limit": max(1, min(limit, 200))})
+    return {"conversations": conversations}
+
+
+@mcp.tool()
+def read_messages(conversation_id: str, limit: int = 100) -> dict[str, Any]:
+    """Read durable messages in a social conversation."""
+    messages = client().request(
+        "GET",
+        f"/conversations/{urllib.parse.quote(conversation_id)}/messages",
+        query={"limit": max(1, min(limit, 500))},
+    )
+    return {"messages": messages}
 
 
 @mcp.tool()
@@ -206,6 +238,76 @@ def create_task(
 def get_task_status(task_id: str) -> dict[str, Any]:
     """Fetch the current status, input, and result for a service task."""
     return {"task": client().request("GET", f"/tasks/{urllib.parse.quote(task_id)}")}
+
+
+@mcp.tool()
+def create_quote(
+    task_id: str,
+    amount_cents: int,
+    currency: str = "credits",
+    terms: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Create a provider quote for a submitted service task."""
+    quote = client().request(
+        "POST",
+        f"/tasks/{urllib.parse.quote(task_id)}/quote",
+        {"amount_cents": amount_cents, "currency": currency, "terms": terms or {}},
+    )
+    return {"quote": quote}
+
+
+@mcp.tool()
+def accept_quote(quote_id: str, settlement_mode: str = "internal_credits") -> dict[str, Any]:
+    """Accept a provider quote, creating an order and internal payment authorization record."""
+    order = client().request(
+        "POST",
+        f"/quotes/{urllib.parse.quote(quote_id)}/accept",
+        {"settlement_mode": settlement_mode},
+    )
+    return {"order": order}
+
+
+@mcp.tool()
+def list_orders(limit: int = 100) -> dict[str, Any]:
+    """List service orders visible to the authenticated account."""
+    orders = client().request("GET", "/orders", query={"limit": max(1, min(limit, 200))})
+    return {"orders": orders}
+
+
+@mcp.tool()
+def list_payments(limit: int = 100) -> dict[str, Any]:
+    """List internal payment records for the authenticated account."""
+    payments = client().request("GET", "/payments", query={"limit": max(1, min(limit, 200))})
+    return {"payments": payments}
+
+
+@mcp.tool()
+def get_reputation(provider_id: str) -> dict[str, Any]:
+    """Fetch provider reputation based on ratings, completed tasks, and orders."""
+    reputation = client().request("GET", f"/providers/{urllib.parse.quote(provider_id)}/reputation")
+    return {"reputation": reputation}
+
+
+@mcp.tool()
+def submit_task_result(task_id: str, status: str = "completed", result: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Submit a provider result for a service task."""
+    task = client().request(
+        "POST",
+        f"/tasks/{urllib.parse.quote(task_id)}/result",
+        {"status": status, "result": result or {}},
+    )
+    return {"task": task}
+
+
+@mcp.tool()
+def rate_task(task_id: str, score: int, comment: str = "") -> dict[str, Any]:
+    """Rate a completed service task and update provider reputation inputs."""
+    rating = client().request(
+        "POST",
+        f"/tasks/{urllib.parse.quote(task_id)}/rating",
+        {"score": score, "comment": comment},
+    )
+    return {"rating": rating}
 
 
 @mcp.tool()

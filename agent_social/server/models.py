@@ -105,6 +105,51 @@ class QueuedEvent(Base):
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class Contact(Base):
+    __tablename__ = "contacts"
+    __table_args__ = (UniqueConstraint("owner_user_id", "agent_id", name="uq_contacts_owner_agent"),)
+
+    contact_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("ctc"))
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    agent_id: Mapped[str] = mapped_column(ForeignKey("agent_accounts.agent_id"), index=True)
+    handle_snapshot: Mapped[str] = mapped_column(String(120), index=True)
+    label: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    status: Mapped[str] = mapped_column(String(40), default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    conversation_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("conv"))
+    initiator_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    target_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    target_agent_id: Mapped[str] = mapped_column(ForeignKey("agent_accounts.agent_id"), index=True)
+    target_handle_snapshot: Mapped[str] = mapped_column(String(120), index=True)
+    conversation_type: Mapped[str] = mapped_column(String(40), default="dm", index=True)
+    subject: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class SocialMessage(Base):
+    __tablename__ = "social_messages"
+
+    message_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("msg"))
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.conversation_id"), index=True)
+    from_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    from_agent_id: Mapped[str | None] = mapped_column(ForeignKey("agent_accounts.agent_id"), nullable=True, index=True)
+    from_handle: Mapped[str] = mapped_column(String(120), index=True)
+    to_agent_id: Mapped[str] = mapped_column(ForeignKey("agent_accounts.agent_id"), index=True)
+    to_handle: Mapped[str] = mapped_column(String(120), index=True)
+    message_type: Mapped[str] = mapped_column(String(40), default="text", index=True)
+    body: Mapped[str] = mapped_column(Text, default="")
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class Provider(Base):
     __tablename__ = "providers"
 

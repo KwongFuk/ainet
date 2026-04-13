@@ -19,15 +19,20 @@ from .models import (
     Artifact,
     AuditLog,
     Capability,
+    Contact,
+    Conversation,
     DeviceSession,
     EmailVerificationCode,
     HumanAccount,
+    PaymentRecord,
     Provider,
     QueuedEvent,
     Quote,
     Rating,
     ServiceProfile,
+    ServiceOrder,
     ServiceTask,
+    SocialMessage,
     utc_now,
 )
 from .queue import EventBus
@@ -37,12 +42,21 @@ from .schemas import (
     ArtifactCreateRequest,
     ArtifactResponse,
     CapabilityInput,
+    ContactCreateRequest,
+    ContactResponse,
+    ConversationCreateRequest,
+    ConversationResponse,
     EventResponse,
     LoginRequest,
     MeResponse,
+    MessageResponse,
     MessageRequest,
+    OrderResponse,
+    PaymentResponse,
     ProviderCreateRequest,
+    ProviderReputationResponse,
     ProviderResponse,
+    QuoteAcceptRequest,
     QuoteCreateRequest,
     QuoteResponse,
     RatingCreateRequest,
@@ -84,6 +98,12 @@ def parse_json(value: str) -> dict:
     return json.loads(value or "{}")
 
 
+def iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return as_utc(value).isoformat()
+
+
 def capability_response(capability: Capability) -> CapabilityInput:
     return CapabilityInput(
         name=capability.name,
@@ -121,6 +141,68 @@ def task_response(task: ServiceTask) -> TaskResponse:
     )
 
 
+def contact_response(contact: Contact) -> ContactResponse:
+    return ContactResponse(
+        contact_id=contact.contact_id,
+        agent_id=contact.agent_id,
+        handle=contact.handle_snapshot,
+        label=contact.label,
+        status=contact.status,
+        created_at=iso(contact.created_at) or "",
+    )
+
+
+def conversation_response(conversation: Conversation) -> ConversationResponse:
+    return ConversationResponse(
+        conversation_id=conversation.conversation_id,
+        target_agent_id=conversation.target_agent_id,
+        target_handle=conversation.target_handle_snapshot,
+        conversation_type=conversation.conversation_type,
+        subject=conversation.subject,
+        last_message_at=iso(conversation.last_message_at),
+        created_at=iso(conversation.created_at) or "",
+    )
+
+
+def message_response(message: SocialMessage) -> MessageResponse:
+    return MessageResponse(
+        message_id=message.message_id,
+        conversation_id=message.conversation_id,
+        from_handle=message.from_handle,
+        to_handle=message.to_handle,
+        message_type=message.message_type,
+        body=message.body,
+        metadata=parse_json(message.metadata_json),
+        created_at=iso(message.created_at) or "",
+    )
+
+
+def payment_response(payment: PaymentRecord) -> PaymentResponse:
+    return PaymentResponse(
+        payment_id=payment.payment_id,
+        order_id=payment.order_id,
+        amount_cents=payment.amount_cents,
+        currency=payment.currency,
+        status=payment.status,
+        provider_reference=payment.provider_reference,
+        created_at=iso(payment.created_at) or "",
+    )
+
+
+def order_response(db: Session, order: ServiceOrder) -> OrderResponse:
+    payment = db.scalar(select(PaymentRecord).where(PaymentRecord.order_id == order.order_id).order_by(PaymentRecord.created_at.desc()))
+    return OrderResponse(
+        order_id=order.order_id,
+        task_id=order.task_id,
+        quote_id=order.quote_id,
+        buyer_user_id=order.buyer_user_id,
+        provider_id=order.provider_id,
+        status=order.status,
+        created_at=iso(order.created_at) or "",
+        payment=payment_response(payment) if payment else None,
+    )
+
+
 def audit(db: Session, user: HumanAccount, action: str, target_type: str, target_id: str | None, payload: dict) -> None:
     db.add(
         AuditLog(
@@ -131,6 +213,51 @@ def audit(db: Session, user: HumanAccount, action: str, target_type: str, target
             payload_json=dump_json(payload),
         )
     )
+
+
+def readable_conversation(db: Session, conversation_id: str, user: HumanAccount) -> Conversation:
+    conversation = db.scalar(
+        select(Conversation)
+        .where(Conversation.conversation_id == conversation_id)
+        .where((Conversation.initiator_user_id == user.user_id) | (Conversation.target_user_id == user.user_id))
+    )
+    if not conversation:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    return conversation
+
+
+def get_or_create_conversation(
+    db: Session,
+    user: HumanAccount,
+    target_agent: AgentAccount,
+    conversation_id: str | None = None,
+    subject: str | None = None,
+) -> Conversation:
+    if conversation_id:
+        conversation = readable_conversation(db, conversation_id, user)
+        if conversation.target_agent_id != target_agent.agent_id:
+            raise HTTPException(status_code=400, detail="conversation target does not match message target")
+        return conversation
+    conversation = db.scalar(
+        select(Conversation)
+        .where(Conversation.initiator_user_id == user.user_id)
+        .where(Conversation.target_agent_id == target_agent.agent_id)
+        .where(Conversation.conversation_type == "dm")
+        .order_by(Conversation.created_at.desc())
+    )
+    if conversation:
+        return conversation
+    conversation = Conversation(
+        initiator_user_id=user.user_id,
+        target_user_id=target_agent.owner_user_id,
+        target_agent_id=target_agent.agent_id,
+        target_handle_snapshot=target_agent.handle,
+        conversation_type="dm",
+        subject=subject,
+    )
+    db.add(conversation)
+    db.flush()
+    return conversation
 
 
 def create_app() -> FastAPI:
@@ -277,6 +404,100 @@ def create_app() -> FastAPI:
         await app.state.event_bus.publish(db, "agent.created", {"agent_id": agent.agent_id, "handle": agent.handle}, user.user_id)
         return AgentResponse(agent_id=agent.agent_id, handle=agent.handle, runtime_type=agent.runtime_type)
 
+    @app.post("/contacts", response_model=ContactResponse, status_code=status.HTTP_201_CREATED)
+    async def create_contact(
+        payload: ContactCreateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+    ) -> ContactResponse:
+        agent = db.scalar(select(AgentAccount).where(AgentAccount.handle == payload.handle))
+        if not agent:
+            raise HTTPException(status_code=404, detail="target handle not found")
+        contact = db.scalar(
+            select(Contact).where(Contact.owner_user_id == user.user_id).where(Contact.agent_id == agent.agent_id)
+        )
+        if contact:
+            contact.label = payload.label or contact.label
+            contact.status = "active"
+        else:
+            contact = Contact(
+                owner_user_id=user.user_id,
+                agent_id=agent.agent_id,
+                handle_snapshot=agent.handle,
+                label=payload.label,
+            )
+            db.add(contact)
+        db.flush()
+        audit(db, user, "contact.create", "contact", contact.contact_id, {"handle": agent.handle})
+        db.commit()
+        db.refresh(contact)
+        await app.state.event_bus.publish(
+            db,
+            "contact.created",
+            {"contact_id": contact.contact_id, "handle": contact.handle_snapshot},
+            user.user_id,
+        )
+        return contact_response(contact)
+
+    @app.get("/contacts", response_model=list[ContactResponse])
+    def list_contacts(
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+        limit: int = 100,
+    ) -> list[ContactResponse]:
+        contacts = db.scalars(
+            select(Contact)
+            .where(Contact.owner_user_id == user.user_id)
+            .where(Contact.status == "active")
+            .order_by(Contact.created_at.desc())
+            .limit(min(limit, 200))
+        ).all()
+        return [contact_response(contact) for contact in contacts]
+
+    @app.post("/conversations", response_model=ConversationResponse, status_code=status.HTTP_201_CREATED)
+    def create_conversation(
+        payload: ConversationCreateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+    ) -> ConversationResponse:
+        target_agent = db.scalar(select(AgentAccount).where(AgentAccount.handle == payload.target_handle))
+        if not target_agent:
+            raise HTTPException(status_code=404, detail="target handle not found")
+        conversation = get_or_create_conversation(db, user, target_agent, subject=payload.subject)
+        db.commit()
+        db.refresh(conversation)
+        return conversation_response(conversation)
+
+    @app.get("/conversations", response_model=list[ConversationResponse])
+    def list_conversations(
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+        limit: int = 100,
+    ) -> list[ConversationResponse]:
+        conversations = db.scalars(
+            select(Conversation)
+            .where((Conversation.initiator_user_id == user.user_id) | (Conversation.target_user_id == user.user_id))
+            .order_by(Conversation.last_message_at.desc().nullslast(), Conversation.created_at.desc())
+            .limit(min(limit, 200))
+        ).all()
+        return [conversation_response(conversation) for conversation in conversations]
+
+    @app.get("/conversations/{conversation_id}/messages", response_model=list[MessageResponse])
+    def list_messages(
+        conversation_id: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+        limit: int = 100,
+    ) -> list[MessageResponse]:
+        conversation = readable_conversation(db, conversation_id, user)
+        messages = db.scalars(
+            select(SocialMessage)
+            .where(SocialMessage.conversation_id == conversation.conversation_id)
+            .order_by(SocialMessage.created_at.asc())
+            .limit(min(limit, 500))
+        ).all()
+        return [message_response(message) for message in messages]
+
     @app.post("/messages", response_model=EventResponse, status_code=status.HTTP_202_ACCEPTED)
     async def send_message(
         payload: MessageRequest,
@@ -292,10 +513,26 @@ def create_app() -> FastAPI:
             if not from_agent or from_agent.owner_user_id != user.user_id:
                 raise HTTPException(status_code=404, detail="from agent not found for this account")
             from_handle = from_agent.handle
+        conversation = get_or_create_conversation(db, user, target_agent, conversation_id=payload.conversation_id)
+        message = SocialMessage(
+            conversation_id=conversation.conversation_id,
+            from_user_id=user.user_id,
+            from_agent_id=payload.from_agent_id,
+            from_handle=from_handle,
+            to_agent_id=target_agent.agent_id,
+            to_handle=target_agent.handle,
+            message_type=payload.message_type,
+            body=payload.body,
+        )
+        db.add(message)
+        db.flush()
+        conversation.last_message_at = message.created_at
         event = await app.state.event_bus.publish(
             db,
             "message.queued",
             {
+                "conversation_id": conversation.conversation_id,
+                "message_id": message.message_id,
                 "from_user_id": user.user_id,
                 "from_handle": from_handle,
                 "to_agent_id": target_agent.agent_id,
@@ -309,6 +546,8 @@ def create_app() -> FastAPI:
             "message.sent",
             {
                 "event_id": event.event_id,
+                "conversation_id": conversation.conversation_id,
+                "message_id": message.message_id,
                 "from_user_id": user.user_id,
                 "from_handle": from_handle,
                 "to_agent_id": target_agent.agent_id,
@@ -550,6 +789,136 @@ def create_app() -> FastAPI:
             currency=quote.currency,
             status=quote.status,
             terms=parse_json(quote.terms_json),
+        )
+
+    @app.post("/quotes/{quote_id}/accept", response_model=OrderResponse, status_code=status.HTTP_201_CREATED)
+    async def accept_quote(
+        quote_id: str,
+        payload: QuoteAcceptRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+    ) -> OrderResponse:
+        quote = db.get(Quote, quote_id)
+        if not quote:
+            raise HTTPException(status_code=404, detail="quote not found")
+        task = db.get(ServiceTask, quote.task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="task not found")
+        if task.requester_user_id != user.user_id:
+            raise HTTPException(status_code=403, detail="only requester can accept this quote")
+        existing = db.scalar(select(ServiceOrder).where(ServiceOrder.quote_id == quote.quote_id))
+        if existing:
+            return order_response(db, existing)
+        order = ServiceOrder(
+            task_id=task.task_id,
+            quote_id=quote.quote_id,
+            buyer_user_id=user.user_id,
+            provider_id=quote.provider_id,
+            status="accepted",
+        )
+        db.add(order)
+        db.flush()
+        payment = PaymentRecord(
+            order_id=order.order_id,
+            amount_cents=quote.amount_cents,
+            currency=quote.currency,
+            status="authorized",
+            provider_reference=payload.settlement_mode,
+        )
+        db.add(payment)
+        quote.status = "accepted"
+        task.status = "accepted"
+        audit(
+            db,
+            user,
+            "quote.accept",
+            "quote",
+            quote.quote_id,
+            {"order_id": order.order_id, "settlement_mode": payload.settlement_mode},
+        )
+        db.commit()
+        db.refresh(order)
+        provider = db.get(Provider, order.provider_id)
+        if provider:
+            await app.state.event_bus.publish(
+                db,
+                "order.created",
+                {"order_id": order.order_id, "task_id": task.task_id, "quote_id": quote.quote_id},
+                provider.owner_user_id,
+            )
+        await app.state.event_bus.publish(
+            db,
+            "payment.authorized",
+            {"payment_id": payment.payment_id, "order_id": order.order_id, "amount_cents": payment.amount_cents},
+            user.user_id,
+        )
+        return order_response(db, order)
+
+    @app.get("/orders", response_model=list[OrderResponse])
+    def list_orders(
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+        limit: int = 100,
+    ) -> list[OrderResponse]:
+        provider_ids = [
+            provider.provider_id
+            for provider in db.scalars(select(Provider).where(Provider.owner_user_id == user.user_id)).all()
+        ]
+        stmt = select(ServiceOrder).where(
+            (ServiceOrder.buyer_user_id == user.user_id)
+            | (ServiceOrder.provider_id.in_(provider_ids) if provider_ids else ServiceOrder.provider_id == "__none__")
+        )
+        orders = db.scalars(stmt.order_by(ServiceOrder.created_at.desc()).limit(min(limit, 200))).all()
+        return [order_response(db, order) for order in orders]
+
+    @app.get("/payments", response_model=list[PaymentResponse])
+    def list_payments(
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+        limit: int = 100,
+    ) -> list[PaymentResponse]:
+        provider_ids = [
+            provider.provider_id
+            for provider in db.scalars(select(Provider).where(Provider.owner_user_id == user.user_id)).all()
+        ]
+        orders = db.scalars(
+            select(ServiceOrder).where(
+                (ServiceOrder.buyer_user_id == user.user_id)
+                | (ServiceOrder.provider_id.in_(provider_ids) if provider_ids else ServiceOrder.provider_id == "__none__")
+            )
+        ).all()
+        order_ids = [order.order_id for order in orders]
+        if not order_ids:
+            return []
+        payments = db.scalars(
+            select(PaymentRecord)
+            .where(PaymentRecord.order_id.in_(order_ids))
+            .order_by(PaymentRecord.created_at.desc())
+            .limit(min(limit, 200))
+        ).all()
+        return [payment_response(payment) for payment in payments]
+
+    @app.get("/providers/{provider_id}/reputation", response_model=ProviderReputationResponse)
+    def provider_reputation(
+        provider_id: str,
+        db: Session = Depends(get_db),
+        _user: HumanAccount = Depends(current_user),
+    ) -> ProviderReputationResponse:
+        provider = db.get(Provider, provider_id)
+        if not provider:
+            raise HTTPException(status_code=404, detail="provider not found")
+        ratings = db.scalars(select(Rating).where(Rating.provider_id == provider_id)).all()
+        completed_tasks = db.scalars(
+            select(ServiceTask).where(ServiceTask.provider_id == provider_id).where(ServiceTask.status == "completed")
+        ).all()
+        orders_count = len(db.scalars(select(ServiceOrder).where(ServiceOrder.provider_id == provider_id)).all())
+        average_score = sum(rating.score for rating in ratings) / len(ratings) if ratings else None
+        return ProviderReputationResponse(
+            provider_id=provider_id,
+            rating_count=len(ratings),
+            average_score=round(average_score, 2) if average_score is not None else None,
+            completed_tasks=len(completed_tasks),
+            orders_count=orders_count,
         )
 
     @app.post("/tasks/{task_id}/result", response_model=TaskResponse)
