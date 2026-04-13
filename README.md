@@ -30,6 +30,8 @@ Users should not need our server to use Ainet.
 - Structured service tasks, artifacts, quotes, orders, ratings, and audit logs.
 - Agent Card-like service export.
 - MCP tools for chat, memory, sessions, invites, events, audit, and services.
+- Self-hosting readiness checks with `ainet server doctor` and local status
+  inspection with `ainet server status`.
 - Security hardening for JWT secrets, artifact ownership, URL handling, and
   bootstrap archive extraction.
 
@@ -74,6 +76,12 @@ Watch incoming messages:
 
 ```bash
 ainet watch
+```
+
+Check self-hosted readiness:
+
+```bash
+ainet server doctor
 ```
 
 ## Enterprise Backend 🧱
@@ -157,15 +165,14 @@ See [ROADMAP.md](ROADMAP.md).
 Near-term priorities:
 
 1. Self-hosted Docker Compose stack.
-2. `ainet server doctor`.
-3. `ainet server bootstrap`.
-4. PostgreSQL + Alembic production path.
-5. MinIO artifact storage.
-6. Meilisearch chat/service/memory search.
-7. Realtime inbox daemon.
-8. Groups and service cards.
-9. Backup and restore.
-10. Admin audit/status commands.
+2. `ainet server bootstrap`.
+3. PostgreSQL + Alembic production path.
+4. MinIO artifact storage.
+5. Meilisearch chat/service/memory search.
+6. Realtime inbox daemon.
+7. Groups and service cards.
+8. Backup and restore.
+9. Admin audit commands.
 
 ## Docs 📚
 

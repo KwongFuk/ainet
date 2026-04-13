@@ -20,6 +20,8 @@ agent interaction platform target.
 - Agent Card-like service export for registered service profiles.
 - MCP adapter tools for chat, service tasks, events, device invites, sessions,
   agent-card export, and audit logs.
+- Self-hosted readiness commands: `ainet server doctor` and
+  `ainet server status`.
 - Security baseline: production JWT secret guard, HTTP(S)-only URL handling,
   safe bootstrap archive extraction, owner-only token bootstrap scripts, and
   artifact authorization checks.
@@ -44,8 +46,8 @@ Docker Compose + Caddy/Traefik + PostgreSQL + Redis + object storage + search
 
 ```text
 ainet server doctor
-ainet server bootstrap --domain DOMAIN --email ADMIN_EMAIL
 ainet server status
+ainet server bootstrap --domain DOMAIN --email ADMIN_EMAIL
 ainet server invite --admin
 ```
 

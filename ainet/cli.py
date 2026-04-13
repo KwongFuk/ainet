@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import importlib.util
 import json
 import os
 import shutil
@@ -593,6 +594,154 @@ def require_auth(config: dict[str, Any]) -> tuple[str, str]:
     if not token:
         raise SystemExit("not logged in. Run `ainet auth login` first.")
     return api_url, token
+
+
+def spec_exists(module: str) -> bool:
+    return importlib.util.find_spec(module) is not None
+
+
+def print_check(label: str, state: str, detail: str) -> bool:
+    marker = {"ok": "OK", "warn": "WARN", "fail": "FAIL"}[state]
+    print(f"[{marker}] {label}: {detail}")
+    return state != "fail"
+
+
+def sqlite_path_from_url(database_url: str) -> Path | None:
+    if database_url == "sqlite:///:memory:":
+        return None
+    if database_url.startswith("sqlite:///"):
+        return Path(database_url.removeprefix("sqlite:///")).expanduser()
+    return None
+
+
+def check_api_health(api_url: str) -> tuple[bool, str]:
+    try:
+        response = api_json("GET", api_url, "/health")
+    except SystemExit as exc:
+        return False, str(exc)
+    return bool(response.get("ok")), json.dumps(response, sort_keys=True)
+
+
+def cmd_server_doctor(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url = resolve_api_url(args, config)
+    checks: list[bool] = []
+
+    print("Ainet server doctor")
+    checks.append(print_check("python", "ok" if sys.version_info >= (3, 10) else "fail", sys.version.split()[0]))
+
+    dependency_modules = ["fastapi", "pydantic_settings", "sqlalchemy", "uvicorn"]
+    missing = [module for module in dependency_modules if not spec_exists(module)]
+    checks.append(
+        print_check(
+            "server dependencies",
+            "fail" if missing else "ok",
+            f"missing {', '.join(missing)}; run `pip install -e \".[server]\"`" if missing else "installed",
+        )
+    )
+    checks.append(
+        print_check(
+            "mcp dependency",
+            "ok" if spec_exists("mcp") else "warn",
+            "installed" if spec_exists("mcp") else "missing; run `pip install -e \".[mcp]\"` if using MCP",
+        )
+    )
+
+    home_parent = paths.home if paths.home.exists() else paths.home.parent
+    checks.append(
+        print_check(
+            "home path",
+            "ok" if home_parent.exists() and os.access(home_parent, os.W_OK) else "fail",
+            str(paths.home),
+        )
+    )
+
+    environment = os.environ.get("AINET_ENVIRONMENT", "development")
+    jwt_secret = os.environ.get("AINET_JWT_SECRET", "dev-change-me")
+    if environment.lower() in {"prod", "production"} and (jwt_secret == "dev-change-me" or len(jwt_secret) < 32):
+        checks.append(print_check("production JWT secret", "fail", "set AINET_JWT_SECRET to at least 32 characters"))
+    else:
+        state = "warn" if jwt_secret == "dev-change-me" else "ok"
+        checks.append(print_check("JWT secret", state, "development default" if state == "warn" else "configured"))
+
+    database_url = os.environ.get("AINET_DATABASE_URL", "sqlite:///./ainet.db")
+    sqlite_path = sqlite_path_from_url(database_url)
+    if sqlite_path is None:
+        checks.append(print_check("database", "ok", database_url.split("://", 1)[0]))
+    else:
+        db_parent = sqlite_path.parent if str(sqlite_path.parent) else Path(".")
+        checks.append(
+            print_check(
+                "sqlite database",
+                "ok" if db_parent.exists() and os.access(db_parent, os.W_OK) else "fail",
+                str(sqlite_path),
+            )
+        )
+
+    if args.check_api:
+        ok, detail = check_api_health(api_url)
+        checks.append(print_check("backend API", "ok" if ok else "fail", f"{api_url} {detail}"))
+    else:
+        checks.append(print_check("backend API", "warn", f"not checked; pass --check-api to probe {api_url}/health"))
+
+    return 0 if all(checks) else 1
+
+
+def cmd_server_status(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url = resolve_api_url(args, config)
+    auth = config.get("auth", {})
+    profiles = config.get("profiles", {})
+    relay_exists = paths.relay.exists() if not paths.relay_url else False
+
+    print("Ainet local status")
+    print(f"home: {paths.home}")
+    print(f"config: {paths.config} ({'exists' if paths.config.exists() else 'missing'})")
+    print(f"api_url: {api_url}")
+    print(f"auth: {'logged in' if auth.get('access_token') else 'not logged in'}")
+    if auth.get("email"):
+        print(f"email: {auth.get('email')}")
+    if auth.get("expires_at"):
+        print(f"token_expires_at: {auth.get('expires_at')}")
+    print(f"active_profile: {config.get('active_profile') or '-'}")
+    print(f"profiles: {len(profiles)}")
+    for name, profile in sorted(profiles.items()):
+        print(f"  - {name}: {profile.get('handle')} runtime={profile.get('runtime')}")
+
+    if paths.relay_url:
+        print(f"relay: {paths.relay_url}")
+    else:
+        print(f"relay: {paths.relay} ({'exists' if relay_exists else 'missing'})")
+        if relay_exists:
+            relay = load_relay(paths)
+            print(f"relay_accounts: {len(relay.get('accounts', {}))}")
+            print(f"relay_messages: {len(relay.get('messages', {}))}")
+
+    ok, detail = check_api_health(api_url)
+    print(f"backend_health: {'ok' if ok else 'unreachable'} ({detail})")
+    if args.json:
+        status = {
+            "home": str(paths.home),
+            "config_exists": paths.config.exists(),
+            "api_url": api_url,
+            "logged_in": bool(auth.get("access_token")),
+            "active_profile": config.get("active_profile"),
+            "profile_count": len(profiles),
+            "relay": paths.relay_url or str(paths.relay),
+            "backend_health": ok,
+        }
+        print(json.dumps(status, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_server_bootstrap(_args: argparse.Namespace, _paths: Paths) -> int:
+    print("Ainet server bootstrap is planned, but not implemented in this CLI yet.")
+    print("Current supported commands:")
+    print("  ainet server doctor")
+    print("  ainet server status")
+    print("  ainet-server")
+    print("Next implementation target: generate Docker Compose + reverse proxy + database/search/object-storage config.")
+    return 2
 
 
 def cmd_agent_create(args: argparse.Namespace, paths: Paths) -> int:
@@ -1188,6 +1337,21 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_install.add_argument("--arg", action="append", help="argument to pass to the MCP server command")
     mcp_install.add_argument("--require-auth", action="store_true", help="fail if auth login has not been saved")
     mcp_install.set_defaults(func=cmd_mcp_install)
+
+    server = sub.add_parser("server", help="self-hosted server operations")
+    server_sub = server.add_subparsers(dest="server_command", required=True)
+    server_doctor = server_sub.add_parser("doctor", help="check local self-hosted server readiness")
+    server_doctor.add_argument("--api-url", help="Ainet backend URL")
+    server_doctor.add_argument("--check-api", action="store_true", help="probe /health on the configured backend API")
+    server_doctor.set_defaults(func=cmd_server_doctor)
+    server_status = server_sub.add_parser("status", help="show local Ainet config and backend status")
+    server_status.add_argument("--api-url", help="Ainet backend URL")
+    server_status.add_argument("--json", action="store_true", help="also print machine-readable JSON")
+    server_status.set_defaults(func=cmd_server_status)
+    server_bootstrap = server_sub.add_parser("bootstrap", help="planned self-hosted bootstrap entry point")
+    server_bootstrap.add_argument("--domain", help="public homeserver domain")
+    server_bootstrap.add_argument("--email", help="admin email")
+    server_bootstrap.set_defaults(func=cmd_server_bootstrap)
 
     events = sub.add_parser("events", help="enterprise backend event operations")
     events_sub = events.add_subparsers(dest="events_command", required=True)

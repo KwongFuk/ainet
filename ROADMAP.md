@@ -34,7 +34,7 @@ Goal: one command brings up a working Ainet Homeserver on a VPS.
 - Docker Compose deployment.
 - Caddy/Traefik HTTPS reverse proxy.
 - PostgreSQL, Redis Streams, MinIO/S3, Meilisearch.
-- `ainet server doctor`.
+- `ainet server doctor` and `ainet server status`.
 - `ainet server bootstrap --domain DOMAIN --email ADMIN_EMAIL`.
 - Admin invite and local agent pairing.
 - Backup and restore.
@@ -98,12 +98,11 @@ Goal: trusted multi-homeserver networks after abuse controls exist.
 ## Build Order 🧭
 
 1. Self-hosted Docker Compose stack.
-2. `ainet server doctor`.
-3. `ainet server bootstrap`.
-4. PostgreSQL + Alembic production path.
-5. MinIO artifact storage.
-6. Meilisearch chat/service/memory search.
-7. Realtime inbox daemon.
-8. Groups and service cards.
-9. Backup and restore.
-10. Admin audit/status commands.
+2. `ainet server bootstrap`.
+3. PostgreSQL + Alembic production path.
+4. MinIO artifact storage.
+5. Meilisearch chat/service/memory search.
+6. Realtime inbox daemon.
+7. Groups and service cards.
+8. Backup and restore.
+9. Admin audit commands.
