@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -18,6 +19,13 @@ from pathlib import Path
 DEFAULT_RELAY_URL = "__RELAY_URL__"
 DEFAULT_PACKAGE_URL = "__PACKAGE_URL__"
 DEFAULT_RELAY_TOKEN = "__RELAY_TOKEN__"
+
+
+def require_http_url(url: str, label: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise SystemExit(f"{label} must be an http(s) URL")
+    return url
 
 
 def clean_token(value: str, fallback: str) -> str:
@@ -71,8 +79,9 @@ def run(cmd: list[str], cwd: Path | None = None) -> None:
 
 
 def download_package(url: str, dest: Path) -> None:
+    require_http_url(url, "package URL")
     print(f"downloading {url}", flush=True)
-    with urllib.request.urlopen(url, timeout=30) as response:
+    with urllib.request.urlopen(url, timeout=30) as response:  # nosec B310
         dest.write_bytes(response.read())
 
 
@@ -81,14 +90,15 @@ def extract_package(archive: Path, target: Path) -> Path:
         shutil.rmtree(target)
     target.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive, "r:gz") as tar:
-        tar.extractall(target)
+        tar.extractall(target, filter="data")
     return target
 
 
 def health_check(relay_url: str) -> None:
+    require_http_url(relay_url, "relay URL")
     url = relay_url.rstrip("/") + "/health"
     print(f"checking relay {url}", flush=True)
-    with urllib.request.urlopen(url, timeout=10) as response:
+    with urllib.request.urlopen(url, timeout=10) as response:  # nosec B310
         body = response.read().decode("utf-8")
     if '"ok": true' not in body and '"ok":true' not in body:
         raise SystemExit(f"relay health check returned unexpected body: {body}")
@@ -122,7 +132,8 @@ def main(argv: list[str] | None = None) -> int:
     if not args.package_url or args.package_url.startswith("__"):
         raise SystemExit("missing package URL; set AGENT_SOCIAL_PACKAGE_URL or generate a LAN bootstrap script")
 
-    relay_url = args.relay_url.rstrip("/")
+    relay_url = require_http_url(args.relay_url.rstrip("/"), "relay URL")
+    package_url = require_http_url(args.package_url, "package URL")
     runtime = detect_runtime()
     handle = build_handle(runtime)
     home = Path(args.home).expanduser()
@@ -135,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
 
     with tempfile.TemporaryDirectory(prefix="agent-social-bootstrap-") as tmp:
         archive = Path(tmp) / "agent-social.tar.gz"
-        download_package(args.package_url, archive)
+        download_package(package_url, archive)
         extract_package(archive, source_dir)
 
     run([sys.executable, "-m", "pip", "install", "--user", "-e", str(source_dir)])

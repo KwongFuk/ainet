@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import secrets
 from datetime import timedelta
 from datetime import datetime, timezone
 
 import jwt
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -21,9 +24,11 @@ from .models import (
     Capability,
     Contact,
     Conversation,
+    ConversationMemory,
     DeviceSession,
     EmailVerificationCode,
     HumanAccount,
+    Invite,
     PaymentRecord,
     Provider,
     QueuedEvent,
@@ -39,14 +44,20 @@ from .queue import EventBus
 from .schemas import (
     AgentCreateRequest,
     AgentResponse,
+    AuditLogResponse,
     ArtifactCreateRequest,
     ArtifactResponse,
     CapabilityInput,
     ContactCreateRequest,
     ContactResponse,
     ConversationCreateRequest,
+    ConversationMemoryRequest,
+    ConversationMemoryResponse,
     ConversationResponse,
     EventResponse,
+    InviteAcceptRequest,
+    InviteCreateRequest,
+    InviteResponse,
     LoginRequest,
     MeResponse,
     MessageResponse,
@@ -65,6 +76,7 @@ from .schemas import (
     ServiceProfileResponse,
     SignupRequest,
     SignupResponse,
+    SessionResponse,
     TaskCreateRequest,
     TaskResponse,
     TaskResultRequest,
@@ -83,6 +95,16 @@ from .security import (
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_SESSION_SCOPES = [
+    "profile:read",
+    "profile:write",
+    "messages:read",
+    "messages:send",
+    "contacts:read",
+    "contacts:write",
+]
+KNOWN_SESSION_SCOPES = set(DEFAULT_SESSION_SCOPES)
+
 
 def as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
@@ -96,6 +118,11 @@ def dump_json(value: dict) -> str:
 
 def parse_json(value: str) -> dict:
     return json.loads(value or "{}")
+
+
+def contains_pattern(value: str) -> str:
+    escaped = value.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
 
 
 def iso(value: datetime | None) -> str | None:
@@ -177,6 +204,18 @@ def message_response(message: SocialMessage) -> MessageResponse:
     )
 
 
+def memory_response(memory: ConversationMemory) -> ConversationMemoryResponse:
+    return ConversationMemoryResponse(
+        memory_id=memory.memory_id,
+        conversation_id=memory.conversation_id,
+        title=memory.title,
+        summary=memory.summary,
+        key_facts=json.loads(memory.key_facts_json or "[]"),
+        pinned=memory.pinned,
+        updated_at=iso(memory.updated_at) or "",
+    )
+
+
 def payment_response(payment: PaymentRecord) -> PaymentResponse:
     return PaymentResponse(
         payment_id=payment.payment_id,
@@ -200,6 +239,40 @@ def order_response(db: Session, order: ServiceOrder) -> OrderResponse:
         status=order.status,
         created_at=iso(order.created_at) or "",
         payment=payment_response(payment) if payment else None,
+    )
+
+
+def session_response(session: DeviceSession) -> SessionResponse:
+    return SessionResponse(
+        session_id=session.session_id,
+        device_name=session.device_name,
+        runtime_type=session.runtime_type,
+        scopes=session.scopes.split(),
+        expires_at=iso(session.expires_at) or "",
+        revoked_at=iso(session.revoked_at),
+        created_at=iso(session.created_at) or "",
+    )
+
+
+def queued_event_response(event: QueuedEvent) -> EventResponse:
+    return EventResponse(
+        cursor_id=event.id,
+        event_id=event.event_id,
+        event_type=event.event_type,
+        account_id=event.account_id,
+        payload=json.loads(event.payload_json),
+    )
+
+
+def audit_log_response(row: AuditLog) -> AuditLogResponse:
+    return AuditLogResponse(
+        audit_id=row.audit_id,
+        actor_user_id=row.actor_user_id,
+        action=row.action,
+        target_type=row.target_type,
+        target_id=row.target_id,
+        payload=parse_json(row.payload_json),
+        created_at=iso(row.created_at) or "",
     )
 
 
@@ -277,6 +350,35 @@ def create_app() -> FastAPI:
     def health() -> dict[str, bool]:
         return {"ok": True}
 
+    def issue_device_session(
+        db: Session,
+        settings: Settings,
+        user: HumanAccount,
+        device_name: str,
+        runtime_type: str,
+        scopes: list[str],
+    ) -> tuple[TokenResponse, DeviceSession]:
+        session = DeviceSession(
+            user_id=user.user_id,
+            device_name=device_name,
+            runtime_type=runtime_type,
+            access_token_hash="pending",
+            scopes=" ".join(scopes),
+            expires_at=utc_now() + timedelta(minutes=settings.access_token_minutes),
+        )
+        db.add(session)
+        db.flush()
+        token, expires_at = create_access_token(settings, user.user_id, session.session_id, scopes)
+        session.access_token_hash = hash_secret(token)
+        session.expires_at = expires_at
+        response = TokenResponse(
+            access_token=token,
+            expires_at=expires_at.isoformat(),
+            user_id=user.user_id,
+            scopes=scopes,
+        )
+        return response, session
+
     @app.post("/auth/signup", response_model=SignupResponse, status_code=status.HTTP_201_CREATED)
     async def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> SignupResponse:
         email = payload.email.lower()
@@ -335,24 +437,11 @@ def create_app() -> FastAPI:
         if not user.email_verified_at:
             raise HTTPException(status_code=403, detail="email verification required")
 
-        session_placeholder = "pending"
-        scopes = ["profile:read", "profile:write", "messages:read", "messages:send", "contacts:read", "contacts:write"]
-        session = DeviceSession(
-            user_id=user.user_id,
-            device_name=payload.device_name,
-            runtime_type=payload.runtime_type,
-            access_token_hash=session_placeholder,
-            scopes=" ".join(scopes),
-            expires_at=utc_now() + timedelta(minutes=settings.access_token_minutes),
-        )
-        db.add(session)
-        db.flush()
-        token, expires_at = create_access_token(settings, user.user_id, session.session_id, scopes)
-        session.access_token_hash = hash_secret(token)
-        session.expires_at = expires_at
+        scopes = DEFAULT_SESSION_SCOPES
+        response, session = issue_device_session(db, settings, user, payload.device_name, payload.runtime_type, scopes)
         db.commit()
         await app.state.event_bus.publish(db, "auth.login", {"user_id": user.user_id, "session_id": session.session_id}, user.user_id)
-        return TokenResponse(access_token=token, expires_at=expires_at.isoformat(), user_id=user.user_id, scopes=scopes)
+        return response
 
     def current_user(
         db: Session = Depends(get_db),
@@ -369,10 +458,91 @@ def create_app() -> FastAPI:
         session = db.get(DeviceSession, claims.get("sid"))
         if not session or session.revoked_at or as_utc(session.expires_at) < utc_now() or not secrets_equal(token, session.access_token_hash):
             raise HTTPException(status_code=401, detail="session expired or revoked")
+        if claims.get("sub") != session.user_id:
+            raise HTTPException(status_code=401, detail="token subject does not match session")
         user = db.get(HumanAccount, claims.get("sub"))
         if not user or user.disabled:
             raise HTTPException(status_code=401, detail="account disabled or missing")
         return user
+
+    @app.post("/auth/invites", response_model=InviteResponse, status_code=status.HTTP_201_CREATED)
+    async def create_invite(
+        payload: InviteCreateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+    ) -> InviteResponse:
+        if payload.invite_type != "device":
+            raise HTTPException(status_code=400, detail="unsupported invite type")
+        token = secrets.token_urlsafe(32)
+        scopes = payload.scopes or DEFAULT_SESSION_SCOPES
+        unknown_scopes = sorted(set(scopes) - KNOWN_SESSION_SCOPES)
+        if unknown_scopes:
+            raise HTTPException(status_code=400, detail=f"unsupported invite scopes: {', '.join(unknown_scopes)}")
+        invite = Invite(
+            invite_type=payload.invite_type,
+            created_by_user_id=user.user_id,
+            token_hash=hash_secret(token),
+            scopes=" ".join(scopes),
+            max_uses=payload.max_uses,
+            expires_at=utc_now() + timedelta(minutes=payload.expires_minutes),
+        )
+        db.add(invite)
+        db.flush()
+        audit(db, user, "invite.create", "invite", invite.invite_id, {"invite_type": invite.invite_type})
+        db.commit()
+        db.refresh(invite)
+        await app.state.event_bus.publish(
+            db,
+            "invite.created",
+            {"invite_id": invite.invite_id, "invite_type": invite.invite_type, "expires_at": iso(invite.expires_at)},
+            user.user_id,
+        )
+        return InviteResponse(
+            invite_id=invite.invite_id,
+            invite_type=invite.invite_type,
+            token=token,
+            scopes=invite.scopes.split(),
+            expires_at=iso(invite.expires_at) or "",
+            max_uses=invite.max_uses,
+        )
+
+    @app.post("/auth/invites/accept", response_model=TokenResponse)
+    async def accept_invite(
+        payload: InviteAcceptRequest,
+        db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
+    ) -> TokenResponse:
+        invite = db.scalar(select(Invite).where(Invite.token_hash == hash_secret(payload.token)))
+        if (
+            not invite
+            or invite.invite_type != "device"
+            or as_utc(invite.expires_at) < utc_now()
+            or invite.use_count >= invite.max_uses
+        ):
+            raise HTTPException(status_code=400, detail="invalid or expired invite")
+        user = db.get(HumanAccount, invite.created_by_user_id)
+        if not user or user.disabled:
+            raise HTTPException(status_code=400, detail="invite owner is unavailable")
+        scopes = invite.scopes.split()
+        response, session = issue_device_session(db, settings, user, payload.device_name, payload.runtime_type, scopes)
+        invite.use_count += 1
+        db.add(
+            AuditLog(
+                actor_user_id=user.user_id,
+                action="invite.accept",
+                target_type="invite",
+                target_id=invite.invite_id,
+                payload_json=dump_json({"session_id": session.session_id, "device_name": payload.device_name}),
+            )
+        )
+        db.commit()
+        await app.state.event_bus.publish(
+            db,
+            "invite.accepted",
+            {"invite_id": invite.invite_id, "session_id": session.session_id, "device_name": payload.device_name},
+            user.user_id,
+        )
+        return response
 
     @app.get("/account/me", response_model=MeResponse)
     def me(user: HumanAccount = Depends(current_user)) -> MeResponse:
@@ -382,6 +552,34 @@ def create_app() -> FastAPI:
             username=user.username,
             email_verified=bool(user.email_verified_at),
         )
+
+    @app.get("/account/sessions", response_model=list[SessionResponse])
+    def list_sessions(
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+        include_revoked: bool = False,
+    ) -> list[SessionResponse]:
+        stmt = select(DeviceSession).where(DeviceSession.user_id == user.user_id)
+        if not include_revoked:
+            stmt = stmt.where(DeviceSession.revoked_at.is_(None))
+        sessions = db.scalars(stmt.order_by(DeviceSession.created_at.desc()).limit(100)).all()
+        return [session_response(session) for session in sessions]
+
+    @app.post("/account/sessions/{session_id}/revoke")
+    async def revoke_session(
+        session_id: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+    ) -> dict[str, bool]:
+        session = db.get(DeviceSession, session_id)
+        if not session or session.user_id != user.user_id:
+            raise HTTPException(status_code=404, detail="session not found")
+        if not session.revoked_at:
+            session.revoked_at = utc_now()
+            audit(db, user, "session.revoke", "session", session.session_id, {"device_name": session.device_name})
+            db.commit()
+            await app.state.event_bus.publish(db, "session.revoked", {"session_id": session.session_id}, user.user_id)
+        return {"ok": True}
 
     @app.post("/agents", response_model=AgentResponse, status_code=status.HTTP_201_CREATED)
     async def create_agent(
@@ -497,6 +695,150 @@ def create_app() -> FastAPI:
             .limit(min(limit, 500))
         ).all()
         return [message_response(message) for message in messages]
+
+    @app.get("/messages/search", response_model=list[MessageResponse])
+    def search_messages(
+        query: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+        conversation_id: str | None = None,
+        limit: int = 50,
+    ) -> list[MessageResponse]:
+        if len(query.strip()) < 2:
+            raise HTTPException(status_code=400, detail="query must be at least 2 characters")
+        if conversation_id:
+            readable_conversation(db, conversation_id, user)
+        pattern = contains_pattern(query)
+        stmt = (
+            select(SocialMessage)
+            .join(Conversation, Conversation.conversation_id == SocialMessage.conversation_id)
+            .where((Conversation.initiator_user_id == user.user_id) | (Conversation.target_user_id == user.user_id))
+            .where(
+                SocialMessage.body.ilike(pattern, escape="\\")
+                | SocialMessage.from_handle.ilike(pattern, escape="\\")
+                | SocialMessage.to_handle.ilike(pattern, escape="\\")
+            )
+            .order_by(SocialMessage.created_at.desc())
+            .limit(min(limit, 200))
+        )
+        if conversation_id:
+            stmt = stmt.where(SocialMessage.conversation_id == conversation_id)
+        messages = db.scalars(stmt).all()
+        return [message_response(message) for message in messages]
+
+    @app.get("/conversations/{conversation_id}/memory", response_model=ConversationMemoryResponse | None)
+    def get_conversation_memory(
+        conversation_id: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+    ) -> ConversationMemoryResponse | None:
+        readable_conversation(db, conversation_id, user)
+        memory = db.scalar(
+            select(ConversationMemory)
+            .where(ConversationMemory.conversation_id == conversation_id)
+            .where(ConversationMemory.owner_user_id == user.user_id)
+        )
+        return memory_response(memory) if memory else None
+
+    @app.put("/conversations/{conversation_id}/memory", response_model=ConversationMemoryResponse)
+    async def upsert_conversation_memory(
+        conversation_id: str,
+        payload: ConversationMemoryRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+    ) -> ConversationMemoryResponse:
+        readable_conversation(db, conversation_id, user)
+        memory = db.scalar(
+            select(ConversationMemory)
+            .where(ConversationMemory.conversation_id == conversation_id)
+            .where(ConversationMemory.owner_user_id == user.user_id)
+        )
+        if not memory:
+            memory = ConversationMemory(conversation_id=conversation_id, owner_user_id=user.user_id)
+            db.add(memory)
+        memory.title = payload.title
+        memory.summary = payload.summary
+        memory.key_facts_json = json.dumps(payload.key_facts, sort_keys=True)
+        memory.pinned = payload.pinned
+        memory.updated_at = utc_now()
+        audit(db, user, "conversation_memory.upsert", "conversation", conversation_id, {"pinned": memory.pinned})
+        db.commit()
+        db.refresh(memory)
+        await app.state.event_bus.publish(
+            db,
+            "conversation_memory.updated",
+            {"conversation_id": conversation_id, "memory_id": memory.memory_id},
+            user.user_id,
+        )
+        return memory_response(memory)
+
+    @app.post("/conversations/{conversation_id}/memory/refresh", response_model=ConversationMemoryResponse)
+    async def refresh_conversation_memory(
+        conversation_id: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+        limit: int = 50,
+    ) -> ConversationMemoryResponse:
+        conversation = readable_conversation(db, conversation_id, user)
+        messages = db.scalars(
+            select(SocialMessage)
+            .where(SocialMessage.conversation_id == conversation.conversation_id)
+            .order_by(SocialMessage.created_at.desc())
+            .limit(min(limit, 200))
+        ).all()
+        chronological = list(reversed(messages))
+        lines = [f"{message.from_handle}: {message.body}" for message in chronological if message.body.strip()]
+        summary = "\n".join(lines)[-12000:]
+        handles = sorted({message.from_handle for message in chronological} | {message.to_handle for message in chronological})
+        key_facts = [
+            f"messages_considered={len(chronological)}",
+            f"participants={', '.join(handles)}",
+        ]
+        memory = db.scalar(
+            select(ConversationMemory)
+            .where(ConversationMemory.conversation_id == conversation_id)
+            .where(ConversationMemory.owner_user_id == user.user_id)
+        )
+        if not memory:
+            memory = ConversationMemory(conversation_id=conversation_id, owner_user_id=user.user_id)
+            db.add(memory)
+        memory.title = conversation.subject or f"Conversation with {conversation.target_handle_snapshot}"
+        memory.summary = summary
+        memory.key_facts_json = json.dumps(key_facts, sort_keys=True)
+        memory.updated_at = utc_now()
+        audit(db, user, "conversation_memory.refresh", "conversation", conversation_id, {"message_count": len(chronological)})
+        db.commit()
+        db.refresh(memory)
+        await app.state.event_bus.publish(
+            db,
+            "conversation_memory.refreshed",
+            {"conversation_id": conversation_id, "memory_id": memory.memory_id, "message_count": len(chronological)},
+            user.user_id,
+        )
+        return memory_response(memory)
+
+    @app.get("/memory/search", response_model=list[ConversationMemoryResponse])
+    def search_memory(
+        query: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+        limit: int = 50,
+    ) -> list[ConversationMemoryResponse]:
+        if len(query.strip()) < 2:
+            raise HTTPException(status_code=400, detail="query must be at least 2 characters")
+        pattern = contains_pattern(query)
+        rows = db.scalars(
+            select(ConversationMemory)
+            .where(ConversationMemory.owner_user_id == user.user_id)
+            .where(
+                ConversationMemory.summary.ilike(pattern, escape="\\")
+                | ConversationMemory.title.ilike(pattern, escape="\\")
+                | ConversationMemory.key_facts_json.ilike(pattern, escape="\\")
+            )
+            .order_by(ConversationMemory.pinned.desc(), ConversationMemory.updated_at.desc())
+            .limit(min(limit, 200))
+        ).all()
+        return [memory_response(row) for row in rows]
 
     @app.post("/messages", response_model=EventResponse, status_code=status.HTTP_202_ACCEPTED)
     async def send_message(
@@ -657,12 +999,57 @@ def create_app() -> FastAPI:
         if category:
             stmt = stmt.where(ServiceProfile.category == category)
         if query:
-            pattern = f"%{query.lower()}%"
-            stmt = stmt.where(ServiceProfile.title.ilike(pattern) | ServiceProfile.description.ilike(pattern))
+            pattern = contains_pattern(query)
+            stmt = stmt.where(
+                ServiceProfile.title.ilike(pattern, escape="\\")
+                | ServiceProfile.description.ilike(pattern, escape="\\")
+            )
         if capability:
             stmt = stmt.join(Capability, Capability.service_id == ServiceProfile.service_id).where(Capability.name == capability)
         services = db.scalars(stmt.limit(min(limit, 100))).all()
         return [service_profile_response(db, service) for service in services]
+
+    @app.get("/service-profiles/{service_id}/agent-card")
+    def service_agent_card(
+        service_id: str,
+        db: Session = Depends(get_db),
+        _user: HumanAccount = Depends(current_user),
+    ) -> dict:
+        service = db.get(ServiceProfile, service_id)
+        if not service or service.status != "active":
+            raise HTTPException(status_code=404, detail="service profile not found")
+        provider = db.get(Provider, service.provider_id)
+        agent = db.get(AgentAccount, provider.agent_id) if provider and provider.agent_id else None
+        capabilities = db.scalars(select(Capability).where(Capability.service_id == service.service_id)).all()
+        return {
+            "schema": "agent-social.agent-card.v0",
+            "name": service.title,
+            "description": service.description,
+            "provider": {
+                "provider_id": provider.provider_id if provider else service.provider_id,
+                "display_name": provider.display_name if provider else service.provider_id,
+                "verification_status": provider.verification_status if provider else "unknown",
+            },
+            "agent": {
+                "agent_id": agent.agent_id,
+                "handle": agent.handle,
+                "runtime_type": agent.runtime_type,
+            }
+            if agent
+            else None,
+            "service": {
+                "service_id": service.service_id,
+                "category": service.category,
+                "pricing_model": service.pricing_model,
+                "currency": service.currency,
+                "base_price_cents": service.base_price_cents,
+                "input_schema": parse_json(service.input_schema_json),
+                "output_schema": parse_json(service.output_schema_json),
+                "sla": parse_json(service.sla_json),
+            },
+            "capabilities": [capability_response(capability).model_dump() for capability in capabilities],
+            "security_schemes": [{"type": "bearer", "description": "Agent Social access token"}],
+        }
 
     @app.post("/tasks", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
     async def create_task(
@@ -717,8 +1104,15 @@ def create_app() -> FastAPI:
         db: Session = Depends(get_db),
         user: HumanAccount = Depends(current_user),
     ) -> ArtifactResponse:
-        if payload.task_id and not db.get(ServiceTask, payload.task_id):
-            raise HTTPException(status_code=404, detail="task not found")
+        if payload.task_id:
+            task = db.get(ServiceTask, payload.task_id)
+            if not task:
+                raise HTTPException(status_code=404, detail="task not found")
+            provider = db.get(Provider, task.provider_id)
+            is_requester = task.requester_user_id == user.user_id
+            is_provider_owner = provider is not None and provider.owner_user_id == user.user_id
+            if not is_requester and not is_provider_owner:
+                raise HTTPException(status_code=403, detail="only requester or provider owner can attach artifacts")
         artifact = Artifact(
             task_id=payload.task_id,
             owner_user_id=user.user_id,
@@ -999,16 +1393,50 @@ def create_app() -> FastAPI:
             .order_by(QueuedEvent.id.asc())
             .limit(min(limit, 200))
         ).all()
-        return [
-            EventResponse(
-                cursor_id=row.id,
-                event_id=row.event_id,
-                event_type=row.event_type,
-                account_id=row.account_id,
-                payload=json.loads(row.payload_json),
-            )
-            for row in rows
-        ]
+        return [queued_event_response(row) for row in rows]
+
+    @app.get("/events/stream")
+    def event_stream(
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+        after_id: int = 0,
+        poll_seconds: float = 2.0,
+    ) -> StreamingResponse:
+        async def stream():
+            cursor = after_id
+            interval = max(0.5, min(poll_seconds, 10.0))
+            while True:
+                rows = db.scalars(
+                    select(QueuedEvent)
+                    .where(QueuedEvent.id > cursor)
+                    .where((QueuedEvent.account_id == user.user_id) | (QueuedEvent.account_id.is_(None)))
+                    .order_by(QueuedEvent.id.asc())
+                    .limit(100)
+                ).all()
+                for row in rows:
+                    cursor = row.id
+                    payload = queued_event_response(row).model_dump()
+                    data = json.dumps(payload, sort_keys=True)
+                    yield f"id: {row.id}\nevent: {row.event_type}\ndata: {data}\n\n"
+                if not rows:
+                    yield ": keepalive\n\n"
+                await asyncio.sleep(interval)
+
+        return StreamingResponse(stream(), media_type="text/event-stream")
+
+    @app.get("/audit", response_model=list[AuditLogResponse])
+    def audit_logs(
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(current_user),
+        limit: int = 100,
+    ) -> list[AuditLogResponse]:
+        rows = db.scalars(
+            select(AuditLog)
+            .where(AuditLog.actor_user_id == user.user_id)
+            .order_by(AuditLog.created_at.desc())
+            .limit(min(limit, 200))
+        ).all()
+        return [audit_log_response(row) for row in rows]
 
     return app
 

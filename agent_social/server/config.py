@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,8 +24,14 @@ class Settings(BaseSettings):
     smtp_starttls: bool = True
     log_email_codes: bool = False
 
+    @model_validator(mode="after")
+    def validate_production_secrets(self) -> "Settings":
+        if self.environment.lower() in {"prod", "production"}:
+            if self.jwt_secret == "dev-change-me" or len(self.jwt_secret) < 32:
+                raise ValueError("AGENT_SOCIAL_JWT_SECRET must be at least 32 characters in production")
+        return self
+
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

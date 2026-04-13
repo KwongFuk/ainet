@@ -147,6 +147,49 @@ No known vulnerabilities found
 Note: the local editable package `agent-social-mvp` is skipped because it is not
 published on PyPI. The audit covers third-party installed dependencies.
 
+## Follow-up Scan - 2026-04-13 UTC
+
+Scope:
+
+- `agent_social`
+- `scripts`
+- third-party Python dependencies installed from `.[server,mcp]`
+
+Fixes applied:
+
+- Production startup now rejects the default JWT secret and secrets shorter than
+  32 characters when `AGENT_SOCIAL_ENVIRONMENT=production`.
+- `/artifacts` now requires the current user to be either the task requester or
+  the provider owner before attaching artifact metadata to an existing task.
+- CLI, MCP, and bootstrap URL handling now rejects non-HTTP(S) schemes before
+  calling `urlopen`.
+- Bootstrap package extraction now uses the standard-library tar data filter to
+  block unsafe archive members such as path traversal payloads.
+- Generated LAN bootstrap scripts now render embedded values as JSON string
+  literals and use owner-only permissions (`0700`) when a relay token is embedded.
+
+Verification:
+
+```text
+python3 -m compileall -q agent_social scripts
+bandit -r agent_social scripts -ll
+pip-audit --local --skip-editable
+```
+
+Result:
+
+```text
+Bandit medium/high scan: no issues identified
+pip-audit: no known vulnerabilities found
+```
+
+Residual notes:
+
+- Full Bandit output still reports low-severity noise for placeholder strings
+  and the bootstrap script's intentional `subprocess.run(..., shell=False)` use.
+- The local package itself is not audited by `pip-audit` because it is not
+  published on PyPI; it was covered by static scan and focused manual review.
+
 ## Service Network Smoke Test
 
 The enterprise backend was also tested through the core service-network loop:
@@ -170,17 +213,65 @@ signup
 This verifies the first open-service-platform shape. It does not yet replace
 the MVP JSON relay used by the public tunnel.
 
+## Agent WeChat Follow-up - 2026-04-13 UTC
+
+Scope:
+
+- durable chat message search,
+- per-user conversation memory,
+- SSE event watch CLI path,
+- MCP chat search and memory tools,
+- backend and MCP direct dependencies for `.[server,mcp]`.
+
+Fixes and hardening applied:
+
+- Message search is scoped through readable conversations, so a third account
+  cannot search messages from a conversation it is not a participant in.
+- Message, memory, and service-profile search now escape SQL LIKE wildcards in
+  user queries, so `%` and `_` are treated as literal characters.
+- Conversation memory is stored per owner account, not globally per
+  conversation, so each participant gets its own memory view.
+- Memory read/refresh/search routes reuse conversation/account authorization.
+- The `server` optional dependency now pins `starlette>=0.46,<1.0` to avoid
+  unstable major-boundary upgrades in enterprise environments.
+
+Verification:
+
+```text
+python3 -m compileall -q agent_social scripts
+python3 -m agent_social events watch --help
+python3 -m agent_social chat search --help
+python3 -m agent_social chat memory refresh --help
+python3 -m agent_social chat memory search --help
+MCP adapter import
+TestClient regression: message search, memory refresh, memory search, and cross-account denial
+python3 -m bandit -q -r agent_social scripts -ll
+pip-audit over direct backend and MCP dependencies
+```
+
+Result:
+
+```text
+Bandit medium/high scan: no issues identified
+Direct backend and MCP dependency audit: no known vulnerabilities found
+```
+
+Note: a full `pip-audit` over the shared user Python environment reports
+unrelated vulnerabilities in ML/system packages such as `vllm`, `ray`, `pip`,
+`aiohttp`, and others. The narrower backend dependency audit avoids treating
+that environment noise as an Agent Social dependency result.
+
 ## Next Required Controls
 
 Before public launch:
 
 1. Add Redis-backed rate limiting.
 2. Add refresh tokens and session rotation.
-3. Add invite token endpoints and one-time use enforcement.
-4. Add route-level scopes for contacts, groups, messages, files, wallet.
-5. Add signed webhooks/SSE/WebSocket event stream.
-6. Add migration tooling with Alembic.
-7. Add structured audit logs.
-8. Add SMTP provider configuration and bounce handling.
-9. Add production TLS/reverse proxy config.
-10. Add security tests for auth bypass, replay, duplicate invites, and expired codes.
+3. Add route-level scope enforcement for contacts, groups, messages, files, and wallet actions.
+4. Add WebSocket event stream and signed webhook delivery.
+5. Add migration tooling with Alembic.
+6. Add structured audit filters and admin review views.
+7. Add SMTP provider configuration and bounce handling.
+8. Add production TLS/reverse proxy config.
+9. Add security tests for auth bypass, replay, duplicate invites, and expired codes.
+10. Add file/object storage scanning before agent-side processing.

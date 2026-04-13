@@ -27,12 +27,44 @@ class LoginRequest(BaseModel):
     runtime_type: str = Field(default="agent", max_length=80)
 
 
+class InviteCreateRequest(BaseModel):
+    invite_type: str = Field(default="device", max_length=40)
+    scopes: list[str] = Field(default_factory=list)
+    expires_minutes: int = Field(default=10, ge=1, le=1440)
+    max_uses: int = Field(default=1, ge=1, le=20)
+
+
+class InviteResponse(BaseModel):
+    invite_id: str
+    invite_type: str
+    token: str
+    scopes: list[str]
+    expires_at: str
+    max_uses: int
+
+
+class InviteAcceptRequest(BaseModel):
+    token: str = Field(min_length=16, max_length=512)
+    device_name: str = Field(default="invited-device", max_length=160)
+    runtime_type: str = Field(default="agent", max_length=80)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_at: str
     user_id: str
     scopes: list[str]
+
+
+class SessionResponse(BaseModel):
+    session_id: str
+    device_name: str
+    runtime_type: str
+    scopes: list[str]
+    expires_at: str
+    revoked_at: str | None
+    created_at: str
 
 
 class MeResponse(BaseModel):
@@ -68,6 +100,16 @@ class EventResponse(BaseModel):
     event_type: str
     account_id: str | None
     payload: dict
+
+
+class AuditLogResponse(BaseModel):
+    audit_id: str
+    actor_user_id: str | None
+    action: str
+    target_type: str
+    target_id: str | None
+    payload: dict
+    created_at: str
 
 
 class ContactCreateRequest(BaseModel):
@@ -108,6 +150,23 @@ class MessageResponse(BaseModel):
     body: str
     metadata: dict
     created_at: str
+
+
+class ConversationMemoryRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=200)
+    summary: str = Field(default="", max_length=12000)
+    key_facts: list[str] = Field(default_factory=list)
+    pinned: bool = False
+
+
+class ConversationMemoryResponse(BaseModel):
+    memory_id: str
+    conversation_id: str
+    title: str | None
+    summary: str
+    key_facts: list[str]
+    pinned: bool
+    updated_at: str
 
 
 class CapabilityInput(BaseModel):

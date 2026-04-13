@@ -150,6 +150,21 @@ class SocialMessage(Base):
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class ConversationMemory(Base):
+    __tablename__ = "conversation_memories"
+    __table_args__ = (UniqueConstraint("conversation_id", "owner_user_id", name="uq_conversation_memories_conversation_owner"),)
+
+    memory_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("mem"))
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.conversation_id"), index=True)
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    key_facts_json: Mapped[str] = mapped_column(Text, default="[]")
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
 class Provider(Base):
     __tablename__ = "providers"
 

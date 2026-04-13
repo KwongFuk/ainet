@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass
@@ -21,6 +22,13 @@ DEFAULT_HOME = Path(os.environ.get("AGENT_SOCIAL_HOME", "~/.agent-social")).expa
 DEFAULT_RELAY_URL = os.environ.get("AGENT_SOCIAL_RELAY_URL")
 DEFAULT_RELAY_TOKEN = os.environ.get("AGENT_SOCIAL_RELAY_TOKEN")
 DEFAULT_API_URL = os.environ.get("AGENT_SOCIAL_API_URL", "http://127.0.0.1:8787")
+
+
+def require_http_url(url: str, label: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise SystemExit(f"{label} must be an http(s) URL")
+    return url
 
 
 def utc_now() -> str:
@@ -122,6 +130,7 @@ def save_relay(paths: Paths, relay: dict[str, Any]) -> None:
 
 
 def http_json(method: str, url: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    require_http_url(url, "relay URL")
     data = None
     headers = {"Accept": "application/json"}
     if payload is not None:
@@ -132,7 +141,7 @@ def http_json(method: str, url: str, payload: dict[str, Any] | None = None) -> d
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with urllib.request.urlopen(request, timeout=10) as response:  # nosec B310
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -148,6 +157,7 @@ def api_json(
     payload: dict[str, Any] | None = None,
     token: str | None = None,
 ) -> dict[str, Any]:
+    require_http_url(api_url, "API URL")
     data = None
     headers = {"Accept": "application/json"}
     if payload is not None:
@@ -158,7 +168,7 @@ def api_json(
     url = f"{api_url.rstrip('/')}{path}"
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
+        with urllib.request.urlopen(request, timeout=15) as response:  # nosec B310
             raw = response.read().decode("utf-8")
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as exc:
@@ -166,6 +176,46 @@ def api_json(
         raise SystemExit(f"api HTTP error {exc.code}: {detail}") from exc
     except urllib.error.URLError as exc:
         raise SystemExit(f"cannot reach API {url}: {exc}") from exc
+
+
+def print_backend_event(event: dict[str, Any]) -> None:
+    event_type = event.get("event_type") or "event"
+    cursor_id = event.get("cursor_id")
+    payload = event.get("payload") or {}
+    print(f"[{event_type}] cursor={cursor_id} payload={json.dumps(payload, sort_keys=True)}", flush=True)
+
+
+def stream_backend_events(api_url: str, token: str, after_id: int, poll_seconds: float, once: bool) -> int:
+    require_http_url(api_url, "API URL")
+    query = urllib.parse.urlencode({"after_id": max(0, after_id), "poll_seconds": max(0.5, min(poll_seconds, 10.0))})
+    url = f"{api_url.rstrip('/')}/events/stream?{query}"
+    request = urllib.request.Request(url, headers={"Accept": "text/event-stream", "Authorization": f"Bearer {token}"}, method="GET")
+    data_lines: list[str] = []
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:  # nosec B310
+            for raw in response:
+                line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+                if not line:
+                    if data_lines:
+                        event = json.loads("\n".join(data_lines))
+                        print_backend_event(event)
+                        data_lines = []
+                        if once:
+                            return 0
+                    continue
+                if line.startswith(":"):
+                    continue
+                if line.startswith("data:"):
+                    data_lines.append(line.removeprefix("data:").strip())
+    except KeyboardInterrupt:
+        print("\nevent watch stopped")
+        return 0
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise SystemExit(f"api HTTP error {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise SystemExit(f"cannot reach API event stream {url}: {exc}") from exc
+    return 0
 
 
 def resolve_api_url(args: argparse.Namespace, config: dict[str, Any]) -> str:
@@ -313,6 +363,176 @@ def cmd_auth_logout(_args: argparse.Namespace, paths: Paths) -> int:
     }
     save_config(paths, config)
     print("logged out locally")
+    return 0
+
+
+def save_auth_response(
+    paths: Paths,
+    config: dict[str, Any],
+    api_url: str,
+    response: dict[str, Any],
+    email: str | None = None,
+) -> None:
+    existing = config.get("auth", {})
+    config["auth"] = {
+        "api_url": api_url,
+        "email": email or existing.get("email"),
+        "access_token": response["access_token"],
+        "token_type": response.get("token_type", "bearer"),
+        "expires_at": response.get("expires_at"),
+        "user_id": response.get("user_id"),
+        "scopes": response.get("scopes", []),
+        "logged_in_at": utc_now(),
+    }
+    save_config(paths, config)
+
+
+def cmd_auth_invite_create(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    response = api_json(
+        "POST",
+        api_url,
+        "/auth/invites",
+        {
+            "invite_type": args.invite_type,
+            "scopes": args.scope or [],
+            "expires_minutes": args.expires_minutes,
+            "max_uses": args.max_uses,
+        },
+        token=token,
+    )
+    print(f"invite_id: {response.get('invite_id')}")
+    print(f"expires_at: {response.get('expires_at')}")
+    print(f"max_uses: {response.get('max_uses')}")
+    print(f"token: {response.get('token')}")
+    return 0
+
+
+def cmd_auth_invite_accept(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url = resolve_api_url(args, config)
+    invite_token = args.token or getpass.getpass("invite token: ")
+    response = api_json(
+        "POST",
+        api_url,
+        "/auth/invites/accept",
+        {
+            "token": invite_token,
+            "device_name": args.device_name or host_name(),
+            "runtime_type": args.runtime_type,
+        },
+    )
+    save_auth_response(paths, config, api_url, response)
+    print(f"accepted invite at {api_url}")
+    print(f"user_id: {response.get('user_id')}")
+    print(f"expires_at: {response.get('expires_at')}")
+    print(f"auth saved: {paths.config}")
+    return 0
+
+
+def cmd_auth_sessions(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    query = "?include_revoked=true" if args.include_revoked else ""
+    sessions = api_json("GET", api_url, f"/account/sessions{query}", token=token)
+    if not sessions:
+        print("no sessions")
+        return 0
+    for session in sessions:
+        revoked = f" revoked_at={session['revoked_at']}" if session.get("revoked_at") else ""
+        scopes = ",".join(session.get("scopes", [])) or "-"
+        print(
+            f"{session['session_id']} device={session['device_name']} runtime={session['runtime_type']} "
+            f"expires_at={session['expires_at']} scopes={scopes}{revoked}"
+        )
+    return 0
+
+
+def cmd_auth_revoke_session(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    api_json("POST", api_url, f"/account/sessions/{args.session_id}/revoke", token=token)
+    print(f"revoked session: {args.session_id}")
+    return 0
+
+
+def cmd_backend_events_watch(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    print(f"watching backend events from {api_url}; press Ctrl-C to stop", flush=True)
+    return stream_backend_events(api_url, token, args.after_id, args.poll_seconds, args.once)
+
+
+def cmd_chat_search(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    query = urllib.parse.urlencode(
+        {
+            "query": args.query,
+            "limit": args.limit,
+            **({"conversation_id": args.conversation_id} if args.conversation_id else {}),
+        }
+    )
+    messages = api_json("GET", api_url, f"/messages/search?{query}", token=token)
+    if not messages:
+        print("no matching messages")
+        return 0
+    for message in messages:
+        print(f"{message['created_at']} {message['from_handle']} -> {message['to_handle']} {message['message_id']}")
+        print(f"  {message['body']}")
+    return 0
+
+
+def print_memory(memory: dict[str, Any] | None) -> None:
+    if not memory:
+        print("no memory saved")
+        return
+    print(f"memory_id: {memory.get('memory_id')}")
+    print(f"conversation_id: {memory.get('conversation_id')}")
+    print(f"title: {memory.get('title') or '-'}")
+    print(f"pinned: {memory.get('pinned')}")
+    print(f"updated_at: {memory.get('updated_at')}")
+    facts = memory.get("key_facts") or []
+    if facts:
+        print("key_facts:")
+        for fact in facts:
+            print(f"  - {fact}")
+    if memory.get("summary"):
+        print("summary:")
+        print(memory["summary"])
+
+
+def cmd_chat_memory_get(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    memory = api_json("GET", api_url, f"/conversations/{args.conversation_id}/memory", token=token)
+    print_memory(memory)
+    return 0
+
+
+def cmd_chat_memory_refresh(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    query = urllib.parse.urlencode({"limit": args.limit})
+    memory = api_json("POST", api_url, f"/conversations/{args.conversation_id}/memory/refresh?{query}", token=token)
+    print_memory(memory)
+    return 0
+
+
+def cmd_chat_memory_search(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    query = urllib.parse.urlencode({"query": args.query, "limit": args.limit})
+    memories = api_json("GET", api_url, f"/memory/search?{query}", token=token)
+    if not memories:
+        print("no matching memories")
+        return 0
+    for memory in memories:
+        print(f"{memory['conversation_id']} memory={memory['memory_id']} updated_at={memory['updated_at']}")
+        print(f"  title: {memory.get('title') or '-'}")
+        if memory.get("summary"):
+            print(f"  summary: {memory['summary'][:240]}")
     return 0
 
 
@@ -994,6 +1214,29 @@ def build_parser() -> argparse.ArgumentParser:
     auth_status.add_argument("--check", action="store_true", help="check the token against the server")
     auth_status.set_defaults(func=cmd_auth_status)
 
+    auth_invite = auth_sub.add_parser("invite", help="device invite operations")
+    invite_sub = auth_invite.add_subparsers(dest="invite_command", required=True)
+    invite_create = invite_sub.add_parser("create", help="create a short-lived device invite")
+    invite_create.add_argument("--invite-type", default="device", help="invite type; currently only device is supported")
+    invite_create.add_argument("--scope", action="append", help="scope to grant to the invited device")
+    invite_create.add_argument("--expires-minutes", type=int, default=10, help="invite lifetime in minutes")
+    invite_create.add_argument("--max-uses", type=int, default=1, help="maximum invite acceptances")
+    invite_create.set_defaults(func=cmd_auth_invite_create)
+    invite_accept = invite_sub.add_parser("accept", help="accept a device invite and save local auth")
+    invite_accept.add_argument("token", nargs="?", help="invite token; omit to prompt")
+    invite_accept.add_argument("--api-url", help="Agent Social backend URL")
+    invite_accept.add_argument("--device-name", help="device/session name")
+    invite_accept.add_argument("--runtime-type", default="agent-cli", help="runtime type for this session")
+    invite_accept.set_defaults(func=cmd_auth_invite_accept)
+
+    auth_sessions = auth_sub.add_parser("sessions", help="list account device sessions")
+    auth_sessions.add_argument("--include-revoked", action="store_true", help="include revoked sessions")
+    auth_sessions.set_defaults(func=cmd_auth_sessions)
+
+    auth_revoke_session = auth_sub.add_parser("revoke-session", help="revoke an account device session")
+    auth_revoke_session.add_argument("session_id", help="session id to revoke")
+    auth_revoke_session.set_defaults(func=cmd_auth_revoke_session)
+
     auth_logout = auth_sub.add_parser("logout", help="remove the local access token")
     auth_logout.set_defaults(func=cmd_auth_logout)
 
@@ -1010,6 +1253,35 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_install.add_argument("--no-backup", action="store_true", help="do not back up Codex config before editing")
     mcp_install.add_argument("--require-auth", action="store_true", help="fail if auth login has not been saved")
     mcp_install.set_defaults(func=cmd_mcp_install)
+
+    events = sub.add_parser("events", help="enterprise backend event operations")
+    events_sub = events.add_subparsers(dest="events_command", required=True)
+    events_watch = events_sub.add_parser("watch", help="watch backend events over SSE")
+    events_watch.add_argument("--after-id", type=int, default=0, help="start after this event cursor")
+    events_watch.add_argument("--poll-seconds", type=float, default=2.0, help="server polling interval for SSE")
+    events_watch.add_argument("--once", action="store_true", help="print one event and exit")
+    events_watch.set_defaults(func=cmd_backend_events_watch)
+
+    chat = sub.add_parser("chat", help="enterprise backend chat operations")
+    chat_sub = chat.add_subparsers(dest="chat_command", required=True)
+    chat_search = chat_sub.add_parser("search", help="search durable backend chat messages")
+    chat_search.add_argument("query", help="message search query")
+    chat_search.add_argument("--conversation-id", help="limit search to one conversation")
+    chat_search.add_argument("--limit", type=int, default=50, help="maximum result count")
+    chat_search.set_defaults(func=cmd_chat_search)
+    chat_memory = chat_sub.add_parser("memory", help="conversation memory operations")
+    memory_sub = chat_memory.add_subparsers(dest="memory_command", required=True)
+    memory_get = memory_sub.add_parser("get", help="show saved memory for a conversation")
+    memory_get.add_argument("conversation_id")
+    memory_get.set_defaults(func=cmd_chat_memory_get)
+    memory_refresh = memory_sub.add_parser("refresh", help="refresh extractive memory from recent messages")
+    memory_refresh.add_argument("conversation_id")
+    memory_refresh.add_argument("--limit", type=int, default=50, help="recent message count")
+    memory_refresh.set_defaults(func=cmd_chat_memory_refresh)
+    memory_search = memory_sub.add_parser("search", help="search saved conversation memories")
+    memory_search.add_argument("query")
+    memory_search.add_argument("--limit", type=int, default=50, help="maximum result count")
+    memory_search.set_defaults(func=cmd_chat_memory_search)
 
     agent = sub.add_parser("agent", help="enterprise backend agent account operations")
     agent_sub = agent.add_subparsers(dest="agent_command", required=True)

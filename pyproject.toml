@@ -17,6 +17,7 @@ server = [
   "PyJWT>=2.9",
   "pwdlib[argon2]>=0.2",
   "redis>=5.0",
+  "starlette>=0.46,<1.0",
   "SQLAlchemy>=2.0",
   "uvicorn[standard]>=0.30",
 ]

@@ -18,10 +18,19 @@ class AgentSocialApiError(RuntimeError):
     """Raised when the Agent Social backend rejects a request."""
 
 
+def require_http_base_url(url: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise AgentSocialApiError("Agent Social API URL must be an http(s) URL")
+    return url.rstrip("/")
+
+
 class AgentSocialApiClient:
     def __init__(self) -> None:
         local_auth = load_local_auth()
-        self.api_url = (os.environ.get("AGENT_SOCIAL_API_URL") or local_auth.get("api_url") or DEFAULT_API_URL).rstrip("/")
+        self.api_url = require_http_base_url(
+            os.environ.get("AGENT_SOCIAL_API_URL") or local_auth.get("api_url") or DEFAULT_API_URL
+        )
         self.token = os.environ.get("AGENT_SOCIAL_ACCESS_TOKEN") or local_auth.get("access_token")
 
     def request(
@@ -45,7 +54,7 @@ class AgentSocialApiClient:
             headers["Authorization"] = f"Bearer {self.token}"
         request = urllib.request.Request(url, data=body, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310
                 raw = response.read().decode("utf-8")
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as exc:
@@ -108,6 +117,33 @@ def get_me() -> dict[str, Any]:
 
 
 @mcp.tool()
+def list_sessions(include_revoked: bool = False) -> dict[str, Any]:
+    """List device sessions for the authenticated account."""
+    sessions = client().request("GET", "/account/sessions", query={"include_revoked": include_revoked})
+    return {"sessions": sessions}
+
+
+@mcp.tool()
+def create_device_invite(
+    expires_minutes: int = 10,
+    max_uses: int = 1,
+    scopes: list[str] | None = None,
+) -> dict[str, Any]:
+    """Create a short-lived device invite for pairing another local agent/runtime."""
+    invite = client().request(
+        "POST",
+        "/auth/invites",
+        {
+            "invite_type": "device",
+            "expires_minutes": max(1, min(expires_minutes, 1440)),
+            "max_uses": max(1, min(max_uses, 20)),
+            "scopes": scopes or [],
+        },
+    )
+    return {"invite": invite}
+
+
+@mcp.tool()
 def search_services(
     query: str | None = None,
     capability: str | None = None,
@@ -121,6 +157,13 @@ def search_services(
         query={"query": query, "capability": capability, "category": category, "limit": max(1, min(limit, 100))},
     )
     return {"services": services}
+
+
+@mcp.tool()
+def get_service_agent_card(service_id: str) -> dict[str, Any]:
+    """Return an Agent Card-like service description for a published service."""
+    agent_card = client().request("GET", f"/service-profiles/{urllib.parse.quote(service_id)}/agent-card")
+    return {"agent_card": agent_card}
 
 
 @mcp.tool()
@@ -160,6 +203,42 @@ def read_messages(conversation_id: str, limit: int = 100) -> dict[str, Any]:
         query={"limit": max(1, min(limit, 500))},
     )
     return {"messages": messages}
+
+
+@mcp.tool()
+def search_messages(query: str, conversation_id: str | None = None, limit: int = 50) -> dict[str, Any]:
+    """Search durable backend chat messages visible to the authenticated account."""
+    messages = client().request(
+        "GET",
+        "/messages/search",
+        query={"query": query, "conversation_id": conversation_id, "limit": max(1, min(limit, 200))},
+    )
+    return {"messages": messages}
+
+
+@mcp.tool()
+def get_conversation_memory(conversation_id: str) -> dict[str, Any]:
+    """Return saved memory for a conversation, if one exists."""
+    memory = client().request("GET", f"/conversations/{urllib.parse.quote(conversation_id)}/memory")
+    return {"memory": memory}
+
+
+@mcp.tool()
+def refresh_conversation_memory(conversation_id: str, limit: int = 50) -> dict[str, Any]:
+    """Refresh extractive conversation memory from recent messages."""
+    memory = client().request(
+        "POST",
+        f"/conversations/{urllib.parse.quote(conversation_id)}/memory/refresh",
+        query={"limit": max(1, min(limit, 200))},
+    )
+    return {"memory": memory}
+
+
+@mcp.tool()
+def search_conversation_memories(query: str, limit: int = 50) -> dict[str, Any]:
+    """Search saved conversation memories visible to the authenticated account."""
+    memories = client().request("GET", "/memory/search", query={"query": query, "limit": max(1, min(limit, 200))})
+    return {"memories": memories}
 
 
 @mcp.tool()
@@ -327,6 +406,13 @@ def poll_events(after_id: int = 0, limit: int = 50) -> dict[str, Any]:
 
 
 @mcp.tool()
+def list_audit_logs(limit: int = 100) -> dict[str, Any]:
+    """List recent audit log entries for the authenticated account."""
+    audit_logs = client().request("GET", "/audit", query={"limit": max(1, min(limit, 200))})
+    return {"audit_logs": audit_logs}
+
+
+@mcp.tool()
 def chat_add_contact(handle: str, label: str | None = None) -> dict[str, Any]:
     """Chat layer: add an agent handle to contacts."""
     return add_contact(handle, label)
@@ -357,6 +443,30 @@ def chat_read_messages(conversation_id: str, limit: int = 100) -> dict[str, Any]
 
 
 @mcp.tool()
+def chat_search_messages(query: str, conversation_id: str | None = None, limit: int = 50) -> dict[str, Any]:
+    """Chat layer: search durable messages."""
+    return search_messages(query, conversation_id, limit)
+
+
+@mcp.tool()
+def chat_get_memory(conversation_id: str) -> dict[str, Any]:
+    """Chat layer: get saved conversation memory."""
+    return get_conversation_memory(conversation_id)
+
+
+@mcp.tool()
+def chat_refresh_memory(conversation_id: str, limit: int = 50) -> dict[str, Any]:
+    """Chat layer: refresh extractive memory from recent messages."""
+    return refresh_conversation_memory(conversation_id, limit)
+
+
+@mcp.tool()
+def chat_search_memory(query: str, limit: int = 50) -> dict[str, Any]:
+    """Chat layer: search saved conversation memories."""
+    return search_conversation_memories(query, limit)
+
+
+@mcp.tool()
 def chat_poll_events(after_id: int = 0, limit: int = 50) -> dict[str, Any]:
     """Chat layer: poll incoming events."""
     return poll_events(after_id, limit)
@@ -371,6 +481,12 @@ def service_search(
 ) -> dict[str, Any]:
     """Service layer: search provider service profiles."""
     return search_services(query, capability, category, limit)
+
+
+@mcp.tool()
+def service_get_agent_card(service_id: str) -> dict[str, Any]:
+    """Service layer: return an Agent Card-like service description."""
+    return get_service_agent_card(service_id)
 
 
 @mcp.tool()
