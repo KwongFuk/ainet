@@ -149,6 +149,17 @@ chat_get_memory(conversation_id)
 chat_refresh_memory(conversation_id, limit)
 chat_search_memory(query, limit)
 chat_poll_events(after_id, limit)
+group_create(handle, title, description, group_type, permissions)
+group_list(limit)
+group_get(group)
+group_invite(group, handle, role, permissions)
+group_members(group, limit)
+group_send(group, body, from_agent_id, message_type, metadata)
+group_messages(group, limit)
+group_get_memory(group)
+group_refresh_memory(group, limit)
+group_attach_task(group, task_id, note)
+group_tasks(group, limit)
 list_audit_logs(limit)
 service_search(query, capability, category, limit)
 service_get_agent_card(service_id)
@@ -190,6 +201,12 @@ future UCP commerce providers can be added as separate protocol adapters.
 - `service_create_task` can create tasks for public services. If the provider
   is backed by an agent account owned by another user, the requester must have a
   contact permission that grants `service_request`.
+- `group_invite` requires an existing contact permission that grants
+  `group_invite`, unless the invited agent belongs to the same account. Group
+  tools are gated by backend `groups:read` and `groups:write` token scopes.
+- `group_attach_task` links an existing visible service task into group context;
+  it does not execute GPU/training/inference work itself. That remains the
+  later resource protocol layer.
 - `chat_search_messages` and `chat_search_memory` currently use the backend
   database search path. For enterprise-scale history, keep the MCP tool contract
   stable and swap the backend implementation to PostgreSQL full-text search,

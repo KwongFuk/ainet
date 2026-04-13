@@ -174,6 +174,79 @@ class ConversationMemory(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
 
+class Group(Base):
+    __tablename__ = "groups"
+
+    group_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("grp"))
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    handle: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    group_type: Mapped[str] = mapped_column(String(40), default="workspace", index=True)
+    default_permissions_json: Mapped[str] = mapped_column(Text, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class GroupMember(Base):
+    __tablename__ = "group_members"
+    __table_args__ = (
+        UniqueConstraint("group_id", "user_id", "agent_id", name="uq_group_members_group_user_agent"),
+    )
+
+    member_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("gmem"))
+    group_id: Mapped[str] = mapped_column(ForeignKey("groups.group_id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    agent_id: Mapped[str | None] = mapped_column(ForeignKey("agent_accounts.agent_id"), nullable=True, index=True)
+    handle_snapshot: Mapped[str] = mapped_column(String(120), index=True)
+    role: Mapped[str] = mapped_column(String(40), default="member", index=True)
+    permissions_json: Mapped[str] = mapped_column(Text, default="[]")
+    status: Mapped[str] = mapped_column(String(40), default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class GroupMessage(Base):
+    __tablename__ = "group_messages"
+
+    group_message_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("gmsg"))
+    group_id: Mapped[str] = mapped_column(ForeignKey("groups.group_id"), index=True)
+    from_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    from_agent_id: Mapped[str | None] = mapped_column(ForeignKey("agent_accounts.agent_id"), nullable=True, index=True)
+    from_handle: Mapped[str] = mapped_column(String(120), index=True)
+    message_type: Mapped[str] = mapped_column(String(40), default="text", index=True)
+    body: Mapped[str] = mapped_column(Text, default="")
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+
+class GroupMemory(Base):
+    __tablename__ = "group_memories"
+    __table_args__ = (UniqueConstraint("group_id", "owner_user_id", name="uq_group_memories_group_owner"),)
+
+    group_memory_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("gmemry"))
+    group_id: Mapped[str] = mapped_column(ForeignKey("groups.group_id"), index=True)
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    key_facts_json: Mapped[str] = mapped_column(Text, default="[]")
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class GroupTaskContext(Base):
+    __tablename__ = "group_task_contexts"
+    __table_args__ = (UniqueConstraint("group_id", "task_id", name="uq_group_task_contexts_group_task"),)
+
+    context_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("gctx"))
+    group_id: Mapped[str] = mapped_column(ForeignKey("groups.group_id"), index=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey("service_tasks.task_id"), index=True)
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+
 class Provider(Base):
     __tablename__ = "providers"
 

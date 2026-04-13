@@ -28,6 +28,11 @@ from .models import (
     ConversationMemory,
     DeviceSession,
     EmailVerificationCode,
+    Group,
+    GroupMember,
+    GroupMemory,
+    GroupMessage,
+    GroupTaskContext,
     HumanAccount,
     Invite,
     PaymentRecord,
@@ -58,6 +63,16 @@ from .schemas import (
     ConversationMemoryResponse,
     ConversationResponse,
     EventResponse,
+    GroupCreateRequest,
+    GroupMemoryRequest,
+    GroupMemoryResponse,
+    GroupMemberAddRequest,
+    GroupMemberResponse,
+    GroupMessageRequest,
+    GroupMessageResponse,
+    GroupResponse,
+    GroupTaskAttachRequest,
+    GroupTaskContextResponse,
     IdentityResponse,
     InviteAcceptRequest,
     InviteCreateRequest,
@@ -107,6 +122,20 @@ LEGACY_FULL_SESSION_SCOPES = {
     "contacts:read",
     "contacts:write",
 }
+PRE_GROUP_DEFAULT_SESSION_SCOPES = {
+    "profile:read",
+    "profile:write",
+    "sessions:read",
+    "sessions:write",
+    "messages:read",
+    "messages:send",
+    "contacts:read",
+    "contacts:write",
+    "services:read",
+    "services:write",
+    "events:read",
+    "audit:read",
+}
 DEFAULT_SESSION_SCOPES = [
     "profile:read",
     "profile:write",
@@ -118,6 +147,8 @@ DEFAULT_SESSION_SCOPES = [
     "contacts:write",
     "services:read",
     "services:write",
+    "groups:read",
+    "groups:write",
     "events:read",
     "audit:read",
 ]
@@ -132,6 +163,15 @@ KNOWN_CONTACT_PERMISSIONS = {
     "memory_write",
     "requires_human_approval",
 }
+DEFAULT_GROUP_PERMISSIONS = [
+    "group_read",
+    "group_write",
+    "group_invite",
+    "task_create",
+    "memory_read",
+    "memory_write",
+]
+KNOWN_GROUP_PERMISSIONS = set(DEFAULT_GROUP_PERMISSIONS)
 KNOWN_TRUST_LEVELS = {"unknown", "known", "trusted", "privileged", "blocked"}
 
 
@@ -169,6 +209,21 @@ def normalize_contact_permissions(permissions: list[str] | None) -> list[str]:
     return normalized
 
 
+def normalize_group_permissions(permissions: list[str] | None, *, default_full: bool = False) -> list[str]:
+    if not permissions:
+        permissions = DEFAULT_GROUP_PERMISSIONS if default_full else ["group_read", "group_write", "task_create", "memory_read"]
+    normalized: list[str] = []
+    for permission in permissions:
+        item = permission.strip().lower()
+        if not item:
+            continue
+        if item not in KNOWN_GROUP_PERMISSIONS:
+            raise HTTPException(status_code=400, detail=f"unsupported group permission: {permission}")
+        if item not in normalized:
+            normalized.append(item)
+    return normalized
+
+
 def normalize_trust_level(trust_level: str) -> str:
     normalized = trust_level.strip().lower()
     if normalized not in KNOWN_TRUST_LEVELS:
@@ -178,7 +233,7 @@ def normalize_trust_level(trust_level: str) -> str:
 
 def effective_session_scopes(scopes_text: str) -> set[str]:
     scopes = set(scopes_text.split())
-    if scopes == LEGACY_FULL_SESSION_SCOPES:
+    if scopes == LEGACY_FULL_SESSION_SCOPES or scopes == PRE_GROUP_DEFAULT_SESSION_SCOPES:
         return set(DEFAULT_SESSION_SCOPES)
     return scopes
 
@@ -294,6 +349,70 @@ def memory_response(memory: ConversationMemory) -> ConversationMemoryResponse:
         key_facts=json.loads(memory.key_facts_json or "[]"),
         pinned=memory.pinned,
         updated_at=iso(memory.updated_at) or "",
+    )
+
+
+def group_response(group: Group) -> GroupResponse:
+    return GroupResponse(
+        group_id=group.group_id,
+        handle=group.handle,
+        title=group.title,
+        description=group.description,
+        group_type=group.group_type,
+        default_permissions=parse_json_list(group.default_permissions_json),
+        owner_user_id=group.owner_user_id,
+        created_at=iso(group.created_at) or "",
+    )
+
+
+def group_member_response(member: GroupMember) -> GroupMemberResponse:
+    return GroupMemberResponse(
+        member_id=member.member_id,
+        group_id=member.group_id,
+        user_id=member.user_id,
+        agent_id=member.agent_id,
+        handle=member.handle_snapshot,
+        role=member.role,
+        permissions=parse_json_list(member.permissions_json),
+        status=member.status,
+        created_at=iso(member.created_at) or "",
+    )
+
+
+def group_message_response(message: GroupMessage) -> GroupMessageResponse:
+    return GroupMessageResponse(
+        group_message_id=message.group_message_id,
+        group_id=message.group_id,
+        from_handle=message.from_handle,
+        from_user_id=message.from_user_id,
+        from_agent_id=message.from_agent_id,
+        message_type=message.message_type,
+        body=message.body,
+        metadata=parse_json(message.metadata_json),
+        created_at=iso(message.created_at) or "",
+    )
+
+
+def group_memory_response(memory: GroupMemory) -> GroupMemoryResponse:
+    return GroupMemoryResponse(
+        group_memory_id=memory.group_memory_id,
+        group_id=memory.group_id,
+        title=memory.title,
+        summary=memory.summary,
+        key_facts=parse_json_list(memory.key_facts_json),
+        pinned=memory.pinned,
+        updated_at=iso(memory.updated_at) or "",
+    )
+
+
+def group_task_context_response(context: GroupTaskContext, task: ServiceTask) -> GroupTaskContextResponse:
+    return GroupTaskContextResponse(
+        context_id=context.context_id,
+        group_id=context.group_id,
+        task_id=context.task_id,
+        note=context.note,
+        created_at=iso(context.created_at) or "",
+        task=task_response(task).model_dump(),
     )
 
 
@@ -454,6 +573,52 @@ def get_or_create_conversation(
     db.add(conversation)
     db.flush()
     return conversation
+
+
+def find_group(db: Session, group_id_or_handle: str) -> Group:
+    group = db.scalar(
+        select(Group).where((Group.group_id == group_id_or_handle) | (Group.handle == group_id_or_handle))
+    )
+    if not group:
+        raise HTTPException(status_code=404, detail="group not found")
+    return group
+
+
+def active_group_member(db: Session, group: Group, user: HumanAccount) -> GroupMember | None:
+    return db.scalar(
+        select(GroupMember)
+        .where(GroupMember.group_id == group.group_id)
+        .where(GroupMember.user_id == user.user_id)
+        .where(GroupMember.status == "active")
+        .order_by(GroupMember.role.asc(), GroupMember.created_at.asc())
+    )
+
+
+def require_group_permission(
+    db: Session,
+    user: HumanAccount,
+    group_id_or_handle: str,
+    permission: str,
+) -> tuple[Group, GroupMember]:
+    group = find_group(db, group_id_or_handle)
+    member = active_group_member(db, group, user)
+    if not member:
+        raise HTTPException(status_code=404, detail="group not found")
+    if group.owner_user_id == user.user_id or member.role in {"owner", "admin"}:
+        return group, member
+    if permission not in set(parse_json_list(member.permissions_json)):
+        raise HTTPException(status_code=403, detail=f"group permission required: {permission}")
+    return group, member
+
+
+def visible_task(db: Session, task_id: str, user: HumanAccount) -> ServiceTask:
+    task = db.get(ServiceTask, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    provider = db.get(Provider, task.provider_id)
+    if task.requester_user_id != user.user_id and (not provider or provider.owner_user_id != user.user_id):
+        raise HTTPException(status_code=403, detail="only requester or provider owner can read this task")
+    return task
 
 
 def create_app() -> FastAPI:
@@ -1186,6 +1351,378 @@ def create_app() -> FastAPI:
             payload=json.loads(event.payload_json),
         )
 
+    @app.post("/groups", response_model=GroupResponse, status_code=status.HTTP_201_CREATED)
+    async def create_group(
+        payload: GroupCreateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("groups:write")),
+    ) -> GroupResponse:
+        existing = db.scalar(select(Group).where(Group.handle == payload.handle))
+        if existing:
+            raise HTTPException(status_code=409, detail="group handle already exists")
+        default_permissions = normalize_group_permissions(payload.permissions)
+        owner_permissions = normalize_group_permissions(DEFAULT_GROUP_PERMISSIONS, default_full=True)
+        group = Group(
+            owner_user_id=user.user_id,
+            handle=payload.handle,
+            title=payload.title,
+            description=payload.description,
+            group_type=payload.group_type,
+            default_permissions_json=json.dumps(default_permissions, sort_keys=True),
+        )
+        db.add(group)
+        db.flush()
+        owner_member = GroupMember(
+            group_id=group.group_id,
+            user_id=user.user_id,
+            handle_snapshot=user.username,
+            role="owner",
+            permissions_json=json.dumps(owner_permissions, sort_keys=True),
+        )
+        db.add(owner_member)
+        audit(db, user, "group.create", "group", group.group_id, {"handle": group.handle, "title": group.title})
+        db.commit()
+        db.refresh(group)
+        await app.state.event_bus.publish(
+            db,
+            "group.created",
+            {"group_id": group.group_id, "handle": group.handle, "title": group.title},
+            user.user_id,
+        )
+        return group_response(group)
+
+    @app.get("/groups", response_model=list[GroupResponse])
+    def list_groups(
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("groups:read")),
+        limit: int = 100,
+    ) -> list[GroupResponse]:
+        rows = db.scalars(
+            select(Group)
+            .join(GroupMember, GroupMember.group_id == Group.group_id)
+            .where(GroupMember.user_id == user.user_id)
+            .where(GroupMember.status == "active")
+            .order_by(Group.updated_at.desc(), Group.created_at.desc())
+            .limit(min(limit, 200))
+        ).unique().all()
+        return [group_response(group) for group in rows]
+
+    @app.get("/groups/{group_id_or_handle}", response_model=GroupResponse)
+    def get_group(
+        group_id_or_handle: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("groups:read")),
+    ) -> GroupResponse:
+        group, _member = require_group_permission(db, user, group_id_or_handle, "group_read")
+        return group_response(group)
+
+    @app.post("/groups/{group_id_or_handle}/members", response_model=GroupMemberResponse, status_code=status.HTTP_201_CREATED)
+    async def add_group_member(
+        group_id_or_handle: str,
+        payload: GroupMemberAddRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("groups:write")),
+    ) -> GroupMemberResponse:
+        group, _member = require_group_permission(db, user, group_id_or_handle, "group_invite")
+        role = payload.role.strip().lower()
+        if role not in {"admin", "member"}:
+            raise HTTPException(status_code=400, detail="role must be admin or member")
+        target_agent = db.scalar(select(AgentAccount).where(AgentAccount.handle == payload.handle))
+        if not target_agent:
+            raise HTTPException(status_code=404, detail="target handle not found")
+        require_contact_permission(db, user, target_agent, "group_invite")
+        permissions = normalize_group_permissions(payload.permissions or parse_json_list(group.default_permissions_json))
+        existing = db.scalar(
+            select(GroupMember)
+            .where(GroupMember.group_id == group.group_id)
+            .where(GroupMember.agent_id == target_agent.agent_id)
+        )
+        if existing:
+            existing.role = role
+            existing.permissions_json = json.dumps(permissions, sort_keys=True)
+            existing.status = "active"
+            existing.handle_snapshot = target_agent.handle
+            member = existing
+        else:
+            member = GroupMember(
+                group_id=group.group_id,
+                user_id=target_agent.owner_user_id,
+                agent_id=target_agent.agent_id,
+                handle_snapshot=target_agent.handle,
+                role=role,
+                permissions_json=json.dumps(permissions, sort_keys=True),
+            )
+            db.add(member)
+        group.updated_at = utc_now()
+        db.flush()
+        audit(
+            db,
+            user,
+            "group.member.add",
+            "group",
+            group.group_id,
+            {"handle": target_agent.handle, "role": member.role, "permissions": permissions},
+        )
+        db.commit()
+        db.refresh(member)
+        await app.state.event_bus.publish(
+            db,
+            "group.member.added",
+            {
+                "group_id": group.group_id,
+                "group_handle": group.handle,
+                "member_id": member.member_id,
+                "handle": target_agent.handle,
+                "role": member.role,
+                "permissions": permissions,
+            },
+            target_agent.owner_user_id,
+        )
+        return group_member_response(member)
+
+    @app.get("/groups/{group_id_or_handle}/members", response_model=list[GroupMemberResponse])
+    def list_group_members(
+        group_id_or_handle: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("groups:read")),
+        limit: int = 100,
+    ) -> list[GroupMemberResponse]:
+        group, _member = require_group_permission(db, user, group_id_or_handle, "group_read")
+        members = db.scalars(
+            select(GroupMember)
+            .where(GroupMember.group_id == group.group_id)
+            .where(GroupMember.status == "active")
+            .order_by(GroupMember.created_at.asc())
+            .limit(min(limit, 200))
+        ).all()
+        return [group_member_response(member) for member in members]
+
+    @app.post("/groups/{group_id_or_handle}/messages", response_model=GroupMessageResponse, status_code=status.HTTP_201_CREATED)
+    async def send_group_message(
+        group_id_or_handle: str,
+        payload: GroupMessageRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("groups:write")),
+    ) -> GroupMessageResponse:
+        group, _member = require_group_permission(db, user, group_id_or_handle, "group_write")
+        from_handle = user.username
+        if payload.from_agent_id:
+            from_agent = db.get(AgentAccount, payload.from_agent_id)
+            if not from_agent or from_agent.owner_user_id != user.user_id:
+                raise HTTPException(status_code=404, detail="from agent not found for this account")
+            from_handle = from_agent.handle
+        message = GroupMessage(
+            group_id=group.group_id,
+            from_user_id=user.user_id,
+            from_agent_id=payload.from_agent_id,
+            from_handle=from_handle,
+            message_type=payload.message_type,
+            body=payload.body,
+            metadata_json=dump_json(payload.metadata),
+        )
+        db.add(message)
+        group.updated_at = utc_now()
+        db.flush()
+        audit(db, user, "group.message.create", "group", group.group_id, {"message_id": message.group_message_id})
+        db.commit()
+        db.refresh(message)
+        recipients = set(
+            db.scalars(
+                select(GroupMember.user_id)
+                .where(GroupMember.group_id == group.group_id)
+                .where(GroupMember.status == "active")
+            ).all()
+        )
+        for recipient_user_id in recipients:
+            await app.state.event_bus.publish(
+                db,
+                "group.message",
+                {
+                    "group_id": group.group_id,
+                    "group_handle": group.handle,
+                    "message_id": message.group_message_id,
+                    "from_handle": message.from_handle,
+                    "body": message.body,
+                },
+                recipient_user_id,
+            )
+        return group_message_response(message)
+
+    @app.get("/groups/{group_id_or_handle}/messages", response_model=list[GroupMessageResponse])
+    def list_group_messages(
+        group_id_or_handle: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("groups:read")),
+        limit: int = 100,
+    ) -> list[GroupMessageResponse]:
+        group, _member = require_group_permission(db, user, group_id_or_handle, "group_read")
+        messages = db.scalars(
+            select(GroupMessage)
+            .where(GroupMessage.group_id == group.group_id)
+            .order_by(GroupMessage.created_at.asc())
+            .limit(min(limit, 500))
+        ).all()
+        return [group_message_response(message) for message in messages]
+
+    @app.get("/groups/{group_id_or_handle}/memory", response_model=GroupMemoryResponse | None)
+    def get_group_memory(
+        group_id_or_handle: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("groups:read")),
+    ) -> GroupMemoryResponse | None:
+        group, _member = require_group_permission(db, user, group_id_or_handle, "memory_read")
+        memory = db.scalar(
+            select(GroupMemory)
+            .where(GroupMemory.group_id == group.group_id)
+            .where(GroupMemory.owner_user_id == user.user_id)
+        )
+        return group_memory_response(memory) if memory else None
+
+    @app.put("/groups/{group_id_or_handle}/memory", response_model=GroupMemoryResponse)
+    async def upsert_group_memory(
+        group_id_or_handle: str,
+        payload: GroupMemoryRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("groups:write")),
+    ) -> GroupMemoryResponse:
+        group, _member = require_group_permission(db, user, group_id_or_handle, "memory_write")
+        memory = db.scalar(
+            select(GroupMemory)
+            .where(GroupMemory.group_id == group.group_id)
+            .where(GroupMemory.owner_user_id == user.user_id)
+        )
+        if not memory:
+            memory = GroupMemory(group_id=group.group_id, owner_user_id=user.user_id)
+            db.add(memory)
+        memory.title = payload.title
+        memory.summary = payload.summary
+        memory.key_facts_json = json.dumps(payload.key_facts, sort_keys=True)
+        memory.pinned = payload.pinned
+        memory.updated_at = utc_now()
+        group.updated_at = utc_now()
+        audit(db, user, "group_memory.upsert", "group", group.group_id, {"pinned": memory.pinned})
+        db.commit()
+        db.refresh(memory)
+        await app.state.event_bus.publish(
+            db,
+            "group_memory.updated",
+            {"group_id": group.group_id, "memory_id": memory.group_memory_id},
+            user.user_id,
+        )
+        return group_memory_response(memory)
+
+    @app.post("/groups/{group_id_or_handle}/memory/refresh", response_model=GroupMemoryResponse)
+    async def refresh_group_memory(
+        group_id_or_handle: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("groups:write")),
+        limit: int = 50,
+    ) -> GroupMemoryResponse:
+        group, _member = require_group_permission(db, user, group_id_or_handle, "memory_write")
+        messages = db.scalars(
+            select(GroupMessage)
+            .where(GroupMessage.group_id == group.group_id)
+            .order_by(GroupMessage.created_at.desc())
+            .limit(min(limit, 200))
+        ).all()
+        chronological = list(reversed(messages))
+        lines = [f"{message.from_handle}: {message.body}" for message in chronological if message.body.strip()]
+        summary = "\n".join(lines)[-12000:]
+        handles = sorted({message.from_handle for message in chronological})
+        key_facts = [
+            f"messages_considered={len(chronological)}",
+            f"participants={', '.join(handles)}",
+        ]
+        memory = db.scalar(
+            select(GroupMemory)
+            .where(GroupMemory.group_id == group.group_id)
+            .where(GroupMemory.owner_user_id == user.user_id)
+        )
+        if not memory:
+            memory = GroupMemory(group_id=group.group_id, owner_user_id=user.user_id)
+            db.add(memory)
+        memory.title = group.title
+        memory.summary = summary
+        memory.key_facts_json = json.dumps(key_facts, sort_keys=True)
+        memory.updated_at = utc_now()
+        group.updated_at = utc_now()
+        audit(db, user, "group_memory.refresh", "group", group.group_id, {"message_count": len(chronological)})
+        db.commit()
+        db.refresh(memory)
+        await app.state.event_bus.publish(
+            db,
+            "group_memory.refreshed",
+            {"group_id": group.group_id, "memory_id": memory.group_memory_id, "message_count": len(chronological)},
+            user.user_id,
+        )
+        return group_memory_response(memory)
+
+    @app.post("/groups/{group_id_or_handle}/tasks", response_model=GroupTaskContextResponse, status_code=status.HTTP_201_CREATED)
+    async def attach_group_task(
+        group_id_or_handle: str,
+        payload: GroupTaskAttachRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("groups:write")),
+    ) -> GroupTaskContextResponse:
+        group, _member = require_group_permission(db, user, group_id_or_handle, "task_create")
+        task = visible_task(db, payload.task_id, user)
+        context = db.scalar(
+            select(GroupTaskContext)
+            .where(GroupTaskContext.group_id == group.group_id)
+            .where(GroupTaskContext.task_id == task.task_id)
+        )
+        if context:
+            context.note = payload.note or context.note
+        else:
+            context = GroupTaskContext(
+                group_id=group.group_id,
+                task_id=task.task_id,
+                created_by_user_id=user.user_id,
+                note=payload.note,
+            )
+            db.add(context)
+        group.updated_at = utc_now()
+        db.flush()
+        audit(db, user, "group.task.attach", "group", group.group_id, {"task_id": task.task_id})
+        db.commit()
+        db.refresh(context)
+        recipients = set(
+            db.scalars(
+                select(GroupMember.user_id)
+                .where(GroupMember.group_id == group.group_id)
+                .where(GroupMember.status == "active")
+            ).all()
+        )
+        for recipient_user_id in recipients:
+            await app.state.event_bus.publish(
+                db,
+                "group.task.attached",
+                {"group_id": group.group_id, "group_handle": group.handle, "task_id": task.task_id, "context_id": context.context_id},
+                recipient_user_id,
+            )
+        return group_task_context_response(context, task)
+
+    @app.get("/groups/{group_id_or_handle}/tasks", response_model=list[GroupTaskContextResponse])
+    def list_group_tasks(
+        group_id_or_handle: str,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("groups:read")),
+        limit: int = 100,
+    ) -> list[GroupTaskContextResponse]:
+        group, _member = require_group_permission(db, user, group_id_or_handle, "group_read")
+        contexts = db.scalars(
+            select(GroupTaskContext)
+            .where(GroupTaskContext.group_id == group.group_id)
+            .order_by(GroupTaskContext.created_at.desc())
+            .limit(min(limit, 200))
+        ).all()
+        responses: list[GroupTaskContextResponse] = []
+        for context in contexts:
+            task = db.get(ServiceTask, context.task_id)
+            if task:
+                responses.append(group_task_context_response(context, task))
+        return responses
+
     @app.post("/providers", response_model=ProviderResponse, status_code=status.HTTP_201_CREATED)
     async def create_provider(
         payload: ProviderCreateRequest,
@@ -1377,13 +1914,7 @@ def create_app() -> FastAPI:
         db: Session = Depends(get_db),
         user: HumanAccount = Depends(scoped_user("services:read")),
     ) -> TaskResponse:
-        task = db.get(ServiceTask, task_id)
-        if not task:
-            raise HTTPException(status_code=404, detail="task not found")
-        provider = db.get(Provider, task.provider_id)
-        if task.requester_user_id != user.user_id and (not provider or provider.owner_user_id != user.user_id):
-            raise HTTPException(status_code=403, detail="only requester or provider owner can read this task")
-        return task_response(task)
+        return task_response(visible_task(db, task_id, user))
 
     @app.post("/artifacts", response_model=ArtifactResponse, status_code=status.HTTP_201_CREATED)
     async def create_artifact(

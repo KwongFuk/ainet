@@ -203,6 +203,93 @@ class ConversationMemoryResponse(BaseModel):
     updated_at: str
 
 
+class GroupCreateRequest(BaseModel):
+    handle: str = Field(min_length=3, max_length=120, pattern=r"^[a-z0-9._-]+$")
+    title: str = Field(min_length=2, max_length=200)
+    description: str = Field(default="", max_length=8000)
+    group_type: str = Field(default="workspace", max_length=40)
+    permissions: list[str] = Field(default_factory=list)
+
+
+class GroupResponse(BaseModel):
+    group_id: str
+    handle: str
+    title: str
+    description: str
+    group_type: str
+    default_permissions: list[str]
+    owner_user_id: str
+    created_at: str
+
+
+class GroupMemberAddRequest(BaseModel):
+    handle: str = Field(min_length=3, max_length=120)
+    role: str = Field(default="member", max_length=40)
+    permissions: list[str] = Field(default_factory=list)
+
+
+class GroupMemberResponse(BaseModel):
+    member_id: str
+    group_id: str
+    user_id: str
+    agent_id: str | None
+    handle: str
+    role: str
+    permissions: list[str]
+    status: str
+    created_at: str
+
+
+class GroupMessageRequest(BaseModel):
+    body: str = Field(min_length=1, max_length=12000)
+    from_agent_id: str | None = Field(default=None, max_length=40)
+    message_type: str = Field(default="text", max_length=40)
+    metadata: dict = Field(default_factory=dict)
+
+
+class GroupMessageResponse(BaseModel):
+    group_message_id: str
+    group_id: str
+    from_handle: str
+    from_user_id: str
+    from_agent_id: str | None
+    message_type: str
+    body: str
+    metadata: dict
+    created_at: str
+
+
+class GroupMemoryRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=200)
+    summary: str = Field(default="", max_length=12000)
+    key_facts: list[str] = Field(default_factory=list)
+    pinned: bool = False
+
+
+class GroupMemoryResponse(BaseModel):
+    group_memory_id: str
+    group_id: str
+    title: str | None
+    summary: str
+    key_facts: list[str]
+    pinned: bool
+    updated_at: str
+
+
+class GroupTaskAttachRequest(BaseModel):
+    task_id: str = Field(max_length=40)
+    note: str = Field(default="", max_length=4000)
+
+
+class GroupTaskContextResponse(BaseModel):
+    context_id: str
+    group_id: str
+    task_id: str
+    note: str
+    created_at: str
+    task: dict
+
+
 class CapabilityInput(BaseModel):
     name: str = Field(min_length=2, max_length=120, pattern=r"^[a-z0-9_.:-]+$")
     description: str = Field(default="", max_length=2000)

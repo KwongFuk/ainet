@@ -179,8 +179,9 @@ admin:relay
 ```
 
 Implemented enterprise backend scopes currently include profile, sessions,
-contacts, messages, services, events, and audit. Future group/file/skill/wallet
-scopes should be added when those surfaces move from design to implementation.
+contacts, messages, services, groups, events, and audit. Future file, skill,
+wallet, approval, and admin scopes should be added when those surfaces move
+from design to implementation.
 
 The current shared MVP relay token has effectively `admin:relay`, which is why
 it should stay temporary.

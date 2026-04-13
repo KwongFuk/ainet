@@ -1037,6 +1037,212 @@ def cmd_contact_trust(args: argparse.Namespace, paths: Paths) -> int:
     return 0
 
 
+def quote_path(value: str) -> str:
+    return urllib.parse.quote(value, safe="")
+
+
+def print_group(group: dict[str, Any]) -> None:
+    permissions = ",".join(group.get("default_permissions") or []) or "-"
+    print(
+        f"{group['handle']} id={group['group_id']} type={group.get('group_type')} "
+        f"title={group.get('title')} permissions={permissions}"
+    )
+
+
+def print_group_member(member: dict[str, Any]) -> None:
+    permissions = ",".join(member.get("permissions") or []) or "-"
+    agent = f" agent_id={member['agent_id']}" if member.get("agent_id") else ""
+    print(
+        f"{member['handle']} member_id={member['member_id']} role={member.get('role')} "
+        f"status={member.get('status')} permissions={permissions}{agent}"
+    )
+
+
+def print_group_message(message: dict[str, Any]) -> None:
+    print(
+        f"{message['created_at']} {message['from_handle']} "
+        f"({message['message_type']}) {message['group_message_id']}"
+    )
+    print(f"  {message['body']}")
+
+
+def print_group_memory(memory: dict[str, Any] | None) -> None:
+    if not memory:
+        print("no group memory saved")
+        return
+    print(f"group_memory_id: {memory.get('group_memory_id')}")
+    print(f"group_id: {memory.get('group_id')}")
+    print(f"title: {memory.get('title') or '-'}")
+    print(f"pinned: {memory.get('pinned')}")
+    print(f"updated_at: {memory.get('updated_at')}")
+    facts = memory.get("key_facts") or []
+    if facts:
+        print("key_facts:")
+        for fact in facts:
+            print(f"  - {fact}")
+    if memory.get("summary"):
+        print("summary:")
+        print(memory["summary"])
+
+
+def cmd_group_create(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    group = api_json(
+        "POST",
+        api_url,
+        "/groups",
+        {
+            "handle": normalize_handle(args.handle),
+            "title": args.title,
+            "description": args.description or "",
+            "group_type": args.group_type,
+            "permissions": args.permission or [],
+        },
+        token=token,
+    )
+    print_group(group)
+    return 0
+
+
+def cmd_group_list(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    groups = api_json("GET", api_url, f"/groups?{urllib.parse.urlencode({'limit': args.limit})}", token=token)
+    if not groups:
+        print("no groups")
+        return 0
+    for group in groups:
+        print_group(group)
+    return 0
+
+
+def cmd_group_show(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    group = api_json("GET", api_url, f"/groups/{quote_path(args.group)}", token=token)
+    print_group(group)
+    return 0
+
+
+def cmd_group_invite(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    member = api_json(
+        "POST",
+        api_url,
+        f"/groups/{quote_path(args.group)}/members",
+        {
+            "handle": normalize_handle(args.handle),
+            "role": args.role,
+            "permissions": args.permission or [],
+        },
+        token=token,
+    )
+    print_group_member(member)
+    return 0
+
+
+def cmd_group_members(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    query = urllib.parse.urlencode({"limit": args.limit})
+    members = api_json("GET", api_url, f"/groups/{quote_path(args.group)}/members?{query}", token=token)
+    if not members:
+        print("no group members")
+        return 0
+    for member in members:
+        print_group_member(member)
+    return 0
+
+
+def cmd_group_send(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    body = " ".join(args.body).strip()
+    if not body:
+        raise SystemExit("message body cannot be empty")
+    message = api_json(
+        "POST",
+        api_url,
+        f"/groups/{quote_path(args.group)}/messages",
+        {
+            "body": body,
+            "from_agent_id": args.from_agent_id,
+            "message_type": args.message_type,
+        },
+        token=token,
+    )
+    print_group_message(message)
+    return 0
+
+
+def cmd_group_messages(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    query = urllib.parse.urlencode({"limit": args.limit})
+    messages = api_json("GET", api_url, f"/groups/{quote_path(args.group)}/messages?{query}", token=token)
+    if not messages:
+        print("no group messages")
+        return 0
+    for message in messages:
+        print_group_message(message)
+    return 0
+
+
+def cmd_group_memory_get(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    memory = api_json("GET", api_url, f"/groups/{quote_path(args.group)}/memory", token=token)
+    print_group_memory(memory)
+    return 0
+
+
+def cmd_group_memory_refresh(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    query = urllib.parse.urlencode({"limit": args.limit})
+    memory = api_json("POST", api_url, f"/groups/{quote_path(args.group)}/memory/refresh?{query}", token=token)
+    print_group_memory(memory)
+    return 0
+
+
+def cmd_group_task_attach(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    context = api_json(
+        "POST",
+        api_url,
+        f"/groups/{quote_path(args.group)}/tasks",
+        {"task_id": args.task_id, "note": args.note or ""},
+        token=token,
+    )
+    task = context.get("task") or {}
+    print(f"attached task {context.get('task_id')} to {context.get('group_id')} context={context.get('context_id')}")
+    if task:
+        print(f"  status={task.get('status')} service_id={task.get('service_id')}")
+    return 0
+
+
+def cmd_group_tasks(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    query = urllib.parse.urlencode({"limit": args.limit})
+    contexts = api_json("GET", api_url, f"/groups/{quote_path(args.group)}/tasks?{query}", token=token)
+    if not contexts:
+        print("no group tasks")
+        return 0
+    for context in contexts:
+        task = context.get("task") or {}
+        print(
+            f"{context['context_id']} task={context['task_id']} status={task.get('status')} "
+            f"service_id={task.get('service_id')} created_at={context.get('created_at')}"
+        )
+        if context.get("note"):
+            print(f"  note: {context['note']}")
+    return 0
+
+
 def get_profile(config: dict[str, Any], profile_name: str) -> dict[str, Any]:
     profile = config["profiles"].get(profile_name)
     if not profile:
@@ -1706,6 +1912,70 @@ def build_parser() -> argparse.ArgumentParser:
     contact_trust.add_argument("contact", help="contact id or handle")
     contact_trust.add_argument("trust_level", help="unknown, known, trusted, privileged, or blocked")
     contact_trust.set_defaults(func=cmd_contact_trust)
+
+    group = sub.add_parser("group", help="backend group workspace operations")
+    group_sub = group.add_subparsers(dest="group_command", required=True)
+    group_create = group_sub.add_parser("create", help="create a group workspace")
+    group_create.add_argument("--handle", required=True, help="group handle, e.g. lab.workspace")
+    group_create.add_argument("--title", required=True, help="group title")
+    group_create.add_argument("--description", help="optional group description")
+    group_create.add_argument("--group-type", default="workspace", help="group type")
+    group_create.add_argument("--permission", action="append", help="default member permission")
+    group_create.set_defaults(func=cmd_group_create)
+
+    group_list = group_sub.add_parser("list", help="list group workspaces visible to this account")
+    group_list.add_argument("--limit", type=int, default=100, help="maximum result count")
+    group_list.set_defaults(func=cmd_group_list)
+
+    group_show = group_sub.add_parser("show", help="show one group workspace")
+    group_show.add_argument("group", help="group id or handle")
+    group_show.set_defaults(func=cmd_group_show)
+
+    group_invite = group_sub.add_parser("invite", help="add an agent handle to a group workspace")
+    group_invite.add_argument("group", help="group id or handle")
+    group_invite.add_argument("handle", help="agent handle to add")
+    group_invite.add_argument("--role", default="member", choices=["admin", "member"], help="group member role")
+    group_invite.add_argument("--permission", action="append", help="member permission; defaults to group default")
+    group_invite.set_defaults(func=cmd_group_invite)
+
+    group_members = group_sub.add_parser("members", help="list group members")
+    group_members.add_argument("group", help="group id or handle")
+    group_members.add_argument("--limit", type=int, default=100, help="maximum result count")
+    group_members.set_defaults(func=cmd_group_members)
+
+    group_send = group_sub.add_parser("send", help="send a group workspace message")
+    group_send.add_argument("group", help="group id or handle")
+    group_send.add_argument("body", nargs="+", help="message body")
+    group_send.add_argument("--from-agent-id", help="owned agent id to send as")
+    group_send.add_argument("--message-type", default="text", help="message type")
+    group_send.set_defaults(func=cmd_group_send)
+
+    group_messages = group_sub.add_parser("messages", help="list group messages")
+    group_messages.add_argument("group", help="group id or handle")
+    group_messages.add_argument("--limit", type=int, default=100, help="maximum result count")
+    group_messages.set_defaults(func=cmd_group_messages)
+
+    group_memory = group_sub.add_parser("memory", help="group workspace memory operations")
+    group_memory_sub = group_memory.add_subparsers(dest="group_memory_command", required=True)
+    group_memory_get = group_memory_sub.add_parser("get", help="show saved group memory")
+    group_memory_get.add_argument("group", help="group id or handle")
+    group_memory_get.set_defaults(func=cmd_group_memory_get)
+    group_memory_refresh = group_memory_sub.add_parser("refresh", help="refresh group memory from recent messages")
+    group_memory_refresh.add_argument("group", help="group id or handle")
+    group_memory_refresh.add_argument("--limit", type=int, default=50, help="recent message count")
+    group_memory_refresh.set_defaults(func=cmd_group_memory_refresh)
+
+    group_task = group_sub.add_parser("task", help="group task-context operations")
+    group_task_sub = group_task.add_subparsers(dest="group_task_command", required=True)
+    group_task_attach = group_task_sub.add_parser("attach", help="attach a visible service task to a group")
+    group_task_attach.add_argument("group", help="group id or handle")
+    group_task_attach.add_argument("task_id", help="task id")
+    group_task_attach.add_argument("--note", help="optional task context note")
+    group_task_attach.set_defaults(func=cmd_group_task_attach)
+    group_task_list = group_task_sub.add_parser("list", help="list tasks attached to a group")
+    group_task_list.add_argument("group", help="group id or handle")
+    group_task_list.add_argument("--limit", type=int, default=100, help="maximum result count")
+    group_task_list.set_defaults(func=cmd_group_tasks)
 
     install = sub.add_parser("install", help="install a local agent profile")
     install.add_argument("--profile", required=True, help="local profile name")

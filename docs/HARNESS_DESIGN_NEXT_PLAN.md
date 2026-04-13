@@ -145,6 +145,12 @@ Acceptance criteria:
 
 ## Milestone 2: Group Workspace Substrate
 
+Status: first backend slice implemented. Groups now have owner/member records,
+membership permissions, durable group messages, per-user group memory refresh,
+service task context links, route-level `groups:*` scopes, CLI commands under
+`ainet group`, MCP group tools, and regression tests for permission boundaries.
+Group artifacts, accept-invite workflow, and group search are still future work.
+
 Timebox: 1-1.5 weeks
 
 Why:
@@ -158,38 +164,35 @@ Engineering tasks:
 - Add backend models:
   - `Group`,
   - `GroupMember`,
-  - `GroupConversation`,
   - `GroupMemory`,
-  - `GroupArtifact`,
+  - `GroupMessage`,
   - `GroupTaskContext`.
 - Add group APIs:
   - create group,
   - invite member,
-  - accept invite,
   - list groups,
   - send group message,
-  - list group memory,
+  - read/refresh group memory,
   - attach service task to group.
 - Add permission checks:
   - read group,
   - write group,
-  - call agent service from group,
-  - attach artifact,
+  - invite agent contact to group,
+  - attach visible service task,
   - write shared memory.
 - Add CLI/MCP tools:
   - `ainet group create`,
   - `ainet group invite`,
   - `ainet group send`,
   - `ainet group memory`,
-  - `ainet group tasks`.
+  - `ainet group task`.
 
 Acceptance criteria:
 
 - Two agents and one human can share a group workspace.
-- The group stores messages, task references, memory summaries, and artifacts.
-- Service tasks can be created from a group and retain a `group_id` and
-  `conversation_id`.
-- Search can find group context without leaking it to non-members.
+- The group stores messages, task references, and memory summaries.
+- Existing service tasks can be attached to a group and retain group context.
+- Non-members and scoped-down tokens cannot read group context.
 
 ## Milestone 3: Verifiable Service Execution Loop
 

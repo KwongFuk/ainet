@@ -102,8 +102,8 @@ mcp = FastMCP(
     "Ainet",
     instructions=(
         "Agent-native social and service-network tools. Use these tools to find agent services, "
-        "send direct messages, publish capabilities, create structured service tasks, and poll "
-        "inbox events."
+        "send direct messages, maintain group workspace context, publish capabilities, create "
+        "structured service tasks, and poll inbox events."
     ),
     stateless_http=True,
     json_response=True,
@@ -288,6 +288,143 @@ def search_conversation_memories(query: str, limit: int = 50) -> dict[str, Any]:
     """Search saved conversation memories visible to the authenticated account."""
     memories = client().request("GET", "/memory/search", query={"query": query, "limit": max(1, min(limit, 200))})
     return {"memories": memories}
+
+
+@mcp.tool()
+def group_create(
+    handle: str,
+    title: str,
+    description: str = "",
+    group_type: str = "workspace",
+    permissions: list[str] | None = None,
+) -> dict[str, Any]:
+    """Create a durable group workspace for agent collaboration context."""
+    group = client().request(
+        "POST",
+        "/groups",
+        {
+            "handle": handle,
+            "title": title,
+            "description": description,
+            "group_type": group_type,
+            "permissions": permissions or [],
+        },
+    )
+    return {"group": group}
+
+
+@mcp.tool()
+def group_list(limit: int = 100) -> dict[str, Any]:
+    """List group workspaces visible to the authenticated account."""
+    groups = client().request("GET", "/groups", query={"limit": max(1, min(limit, 200))})
+    return {"groups": groups}
+
+
+@mcp.tool()
+def group_get(group: str) -> dict[str, Any]:
+    """Return one group workspace by id or handle."""
+    row = client().request("GET", f"/groups/{urllib.parse.quote(group)}")
+    return {"group": row}
+
+
+@mcp.tool()
+def group_invite(
+    group: str,
+    handle: str,
+    role: str = "member",
+    permissions: list[str] | None = None,
+) -> dict[str, Any]:
+    """Add an agent contact to a group workspace using group_invite permission."""
+    member = client().request(
+        "POST",
+        f"/groups/{urllib.parse.quote(group)}/members",
+        {"handle": handle, "role": role, "permissions": permissions or []},
+    )
+    return {"member": member}
+
+
+@mcp.tool()
+def group_members(group: str, limit: int = 100) -> dict[str, Any]:
+    """List active members in a group workspace."""
+    members = client().request(
+        "GET",
+        f"/groups/{urllib.parse.quote(group)}/members",
+        query={"limit": max(1, min(limit, 200))},
+    )
+    return {"members": members}
+
+
+@mcp.tool()
+def group_send(
+    group: str,
+    body: str,
+    from_agent_id: str | None = None,
+    message_type: str = "text",
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Send a durable message into a group workspace."""
+    message = client().request(
+        "POST",
+        f"/groups/{urllib.parse.quote(group)}/messages",
+        {
+            "body": body,
+            "from_agent_id": from_agent_id,
+            "message_type": message_type,
+            "metadata": metadata or {},
+        },
+    )
+    return {"message": message}
+
+
+@mcp.tool()
+def group_messages(group: str, limit: int = 100) -> dict[str, Any]:
+    """Read durable messages from a group workspace."""
+    messages = client().request(
+        "GET",
+        f"/groups/{urllib.parse.quote(group)}/messages",
+        query={"limit": max(1, min(limit, 500))},
+    )
+    return {"messages": messages}
+
+
+@mcp.tool()
+def group_get_memory(group: str) -> dict[str, Any]:
+    """Return the authenticated user's saved memory for a group workspace."""
+    memory = client().request("GET", f"/groups/{urllib.parse.quote(group)}/memory")
+    return {"memory": memory}
+
+
+@mcp.tool()
+def group_refresh_memory(group: str, limit: int = 50) -> dict[str, Any]:
+    """Refresh extractive group memory from recent workspace messages."""
+    memory = client().request(
+        "POST",
+        f"/groups/{urllib.parse.quote(group)}/memory/refresh",
+        query={"limit": max(1, min(limit, 200))},
+    )
+    return {"memory": memory}
+
+
+@mcp.tool()
+def group_attach_task(group: str, task_id: str, note: str = "") -> dict[str, Any]:
+    """Attach a visible service task to a group workspace context."""
+    context = client().request(
+        "POST",
+        f"/groups/{urllib.parse.quote(group)}/tasks",
+        {"task_id": task_id, "note": note},
+    )
+    return {"context": context}
+
+
+@mcp.tool()
+def group_tasks(group: str, limit: int = 100) -> dict[str, Any]:
+    """List service tasks attached to a group workspace context."""
+    contexts = client().request(
+        "GET",
+        f"/groups/{urllib.parse.quote(group)}/tasks",
+        query={"limit": max(1, min(limit, 200))},
+    )
+    return {"contexts": contexts}
 
 
 @mcp.tool()

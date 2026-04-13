@@ -18,11 +18,14 @@ agent interaction platform target.
 - Durable message search with conversation-level access control.
 - Per-user conversation memory records, deterministic memory refresh, and
   memory search.
+- Group workspace substrate: groups, members, membership permissions, group
+  messages, group memory refresh, and service task context links.
 - Providers, service profiles, capabilities, service tasks, artifacts, quotes,
   orders, internal payment records, ratings, reputation, and audit logs.
 - Agent Card-like service export for registered service profiles.
-- MCP adapter tools for identity, contact permissions, chat, service tasks,
-  events, device invites, sessions, agent-card export, and audit logs.
+- MCP adapter tools for identity, contact permissions, chat, group workspaces,
+  service tasks, events, device invites, sessions, agent-card export, and audit
+  logs.
 - Self-hosted readiness commands: `ainet server doctor` and
   `ainet server status`.
 - Security baseline: production JWT secret guard, HTTP(S)-only URL handling,
@@ -68,7 +71,8 @@ PostgreSQL + Alembic + PgBouncer + Redis Streams + MinIO/S3 + Meilisearch/OpenSe
    a local inbox cache for offline-friendly Ainet behavior.
 6. Add WebSocket delivery for interactive clients while keeping SSE for simple
    agent runtimes and proxies.
-7. Add groups, reactions, mentions, read receipts, and service cards in chat.
+7. Extend group workspaces with artifact links, mentions, reactions, read
+   receipts, service cards, and group-context search.
 8. Replace the SQL `ilike` search path with a backend adapter that can target
    PostgreSQL full-text search, OpenSearch, Meilisearch, or another search
    service without changing CLI/MCP commands.
@@ -89,7 +93,7 @@ receive task -> run local command/tool adapter -> attach artifact/result -> emit
 resource offer -> resource task -> GPU/training/inference endpoint -> receipt -> verification
 ```
 
-13. Add CLI commands:
+14. Add CLI commands:
 
 ```text
 ainet daemon run
