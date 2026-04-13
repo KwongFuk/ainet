@@ -1,217 +1,109 @@
-# Ainet Roadmap
+# Ainet Roadmap 🚀
 
-## Product Direction
+**Slogan:** Self-hosted Agent WeChat for an open AI-native network.
 
-Ainet is an open-source Agent WeChat and self-hosted agent service network.
+Ainet is an open-source agent communication and service network. It gives users
+their own homeserver, their own data, and a shared place where humans and agents
+can chat, remember, publish services, and exchange tasks.
 
-The product has three layers:
-
-```text
-Ainet Client       -> CLI, local daemon, future web/mobile UI
-Ainet Homeserver   -> self-hosted communication, memory, service, and audit server
-Ainet Agent Bridge -> MCP, A2A-style, and runtime adapters
-```
-
-The deployment model follows the Element/Matrix-style lesson: users should be
-able to run their own homeserver instead of depending on our hosted server.
-Federation can come later, after permissions, rate limits, abuse reporting, and
-trust controls exist.
-
-## Current Foundation
-
-Implemented:
-
-- email signup, verification, and login,
-- JWT device sessions,
-- short-lived device invites,
-- session list and revoke,
-- human accounts and agent accounts,
-- contacts, conversations, durable messages,
-- SSE event stream and CLI event watcher,
-- message search with account/conversation access control,
-- per-user conversation memory with refresh/get/search APIs,
-- providers, service profiles, capabilities, service tasks,
-- artifacts, quotes, orders, payment records, ratings, reputation, audit logs,
-- Agent Card-like service export,
-- MCP tools for chat, memory, service tasks, events, sessions, invites, and audit,
-- security hardening for JWT secrets, artifact ownership, URL schemes, and
-  bootstrap archive extraction.
-
-## Milestone 1: Self-Hosted MVP
-
-Goal:
+## Vision 🌐
 
 ```text
-One user can run Ainet on a VPS and pair local agents without using our server.
+Ainet Client + Ainet Homeserver + Ainet Agent Bridge
 ```
 
-Deliverables:
+- **Ainet Client**: CLI, local daemon, future web/mobile UI.
+- **Ainet Homeserver**: self-hosted chat, memory, services, audit, and files.
+- **Ainet Agent Bridge**: MCP, A2A-style, Matrix bridge, and runtime adapters.
 
-- Docker Compose deployment under `deploy/docker-compose/`.
-- Caddy or Traefik reverse proxy with HTTPS.
-- PostgreSQL production profile.
-- Redis Streams for realtime events and rate limits.
-- MinIO/S3-compatible object storage for files and artifacts.
-- Meilisearch full-text search for chats, memories, services, and artifacts.
-- Ainet `.env` generator with strong secrets.
-- `ainet server doctor` preflight checks.
+## Now ✅
+
+- Auth: email signup, verification, JWT sessions, device invites.
+- Chat: contacts, conversations, durable messages, SSE events, CLI watcher.
+- Memory: message search and per-user conversation memory.
+- Services: providers, service profiles, tasks, artifacts, quotes, orders.
+- Trust: ratings, reputation, audit logs, safer JWT/bootstrap/artifact handling.
+- Agents: MCP tools for chat, memory, sessions, invites, events, and services.
+
+## Next 🎯
+
+### 1. Self-Hosted MVP 🏠
+
+Goal: one command brings up a working Ainet Homeserver on a VPS.
+
+- Docker Compose deployment.
+- Caddy/Traefik HTTPS reverse proxy.
+- PostgreSQL, Redis Streams, MinIO/S3, Meilisearch.
+- `ainet server doctor`.
 - `ainet server bootstrap --domain DOMAIN --email ADMIN_EMAIL`.
-- Admin invite generation.
-- Pairing instructions for local CLI/MCP agents.
-- Backup and restore scripts for database and object storage.
+- Admin invite and local agent pairing.
+- Backup and restore.
 
-Exit criteria:
+### 2. Agent WeChat Core 💬
 
-- A new VPS can be configured from a clean checkout.
-- Two local agents can pair with the homeserver.
-- Agents can send realtime messages.
-- Users can search chat history.
-- Users can refresh and search conversation memory.
-- A provider can publish one service profile and receive one structured task.
-- Backup and restore complete successfully in a test environment.
+Goal: make the product feel like a realtime agent social app, not just APIs.
 
-## Milestone 2: Agent WeChat Core
+- Local daemon with realtime inbox.
+- WebSocket for interactive clients.
+- Groups, reactions, mentions, read receipts.
+- File/media messages.
+- Service cards inside chat.
+- Memory pinning and redaction.
 
-Goal:
+### 3. Enterprise Data Plane 🗄️
 
-```text
-Make the app feel like a WeChat-style agent communication product, not just APIs.
-```
-
-Deliverables:
-
-- local daemon that follows `/events/stream` and stores a cursor,
-- local inbox cache for offline-friendly CLI behavior,
-- WebSocket delivery for interactive clients,
-- groups and group membership,
-- reactions, mentions, read receipts,
-- service cards inside conversations,
-- file/media messages through object storage,
-- memory pinning and memory redaction controls,
-- backend-native friend/contact request flow.
-
-Exit criteria:
-
-- CLI users can keep a live inbox open.
-- Agents can proactively notify users about important messages.
-- Group chat supports multi-agent project/service rooms.
-- Chat threads can contain service cards, files, task references, and receipts.
-
-## Milestone 3: Enterprise Data Plane
-
-Goal:
-
-```text
-Make the homeserver reliable under many users, agents, and concurrent tasks.
-```
-
-Deliverables:
+Goal: make self-hosting reliable for many users and agents.
 
 - Alembic migrations.
 - PgBouncer connection pooling.
-- PostgreSQL backup/WAL plan.
-- Redis-backed rate limits and event replay strategy.
+- Redis-backed rate limits and event replay.
 - OpenSearch option for larger deployments.
-- Qdrant or pgvector adapter for vector memory.
-- search-index and vector-index rebuild commands.
-- object-storage integrity checks.
-- OpenTelemetry traces, metrics, and logs.
-- Prometheus/Grafana optional dashboard.
-- audit filters and audit export.
-- admin health/status page or CLI report.
+- Qdrant or pgvector for vector memory.
+- OpenTelemetry, Prometheus, Grafana.
+- Search/vector index rebuild commands.
+- Object-storage integrity checks.
 
-Exit criteria:
+### 4. Trust And Governance 🛡️
 
-- Schema upgrades run through migration preflight.
-- Search and vector indexes can be rebuilt from source-of-truth data.
-- Event delivery survives Redis restart by relying on durable database events.
-- Admins can export audit logs and verify object-storage integrity.
+Goal: make open self-hosting safe enough for real teams.
 
-## Milestone 4: Trust, Governance, And Security
+- Invite-only registration by default.
+- Route-level token scopes.
+- Refresh token rotation.
+- Domain and provider verification.
+- Signed Agent Cards.
+- Attachment scanning hooks.
+- Abuse reports, bans, moderation actions.
 
-Goal:
+### 5. Protocol Interop 🔌
 
-```text
-Make open self-hosting safe enough for real users and teams.
-```
-
-Deliverables:
-
-- invite-only registration by default,
-- route-level token scopes,
-- refresh token rotation,
-- provider/domain verification,
-- signed Agent Card export,
-- attachment malware scanning hook,
-- abuse report and ban workflow,
-- moderation actions table and admin tools,
-- data retention and deletion workflow,
-- encrypted secrets at rest for provider credentials.
-
-Exit criteria:
-
-- A homeserver admin can restrict registration, revoke devices, ban providers,
-  and audit risky operations.
-- Untrusted files are scanned or blocked before agent-side processing.
-- Service publishing has basic review and rollback controls.
-
-## Milestone 5: Protocol Interop
-
-Goal:
-
-```text
-Let Ainet communicate with external agent ecosystems without giving up its own product model.
-```
-
-Deliverables:
+Goal: connect with other agent ecosystems without losing Ainet's product model.
 
 - `/.well-known/agent-social/server` discovery.
-- A2A-compatible Agent Card endpoint.
-- A2A-style task/status/artifact adapter.
-- MCP adapter hardening and OAuth-style resource-server auth.
-- optional Matrix bridge for human chat rooms.
-- UCP/AP2 adapters only for commerce/payment verticals.
+- A2A-style Agent Card and task/status/artifact adapter.
+- Hardened MCP auth.
+- Optional Matrix bridge for human chat rooms.
+- UCP/AP2 only for commerce and payment verticals.
 
-Exit criteria:
+### 6. Federation 🕸️
 
-- Another agent server can discover Ainet service agents.
-- Local agents can call Ainet through MCP without copying raw access tokens into
-  every host config.
-- Human chat interop is possible through a bridge rather than by replacing the
-  Ainet data model with Matrix.
+Goal: trusted multi-homeserver networks after abuse controls exist.
 
-## Milestone 6: Federation
+- Manual trusted peering.
+- Domain-verified homeservers.
+- Signed cross-server service profiles.
+- Cross-server rate limits.
+- Federation audit logs.
 
-Goal:
+## Build Order 🧭
 
-```text
-Support trusted multi-homeserver networks after the abuse controls exist.
-```
-
-Deliverables:
-
-- manual trusted peering between homeservers,
-- domain verification for homeservers,
-- signed cross-server service profiles,
-- rate limits for cross-server requests,
-- report/ban propagation for trusted peers,
-- federation audit logs.
-
-Exit criteria:
-
-- Two self-hosted Ainet homeservers can exchange agent messages and service
-  requests through explicit trust configuration.
-- Admins can cut off a peer without losing local data.
-
-## Near-Term Build Order
-
-1. Add deployment files for the self-hosted stack.
-2. Add `ainet server doctor`.
-3. Add `ainet server bootstrap` for Docker Compose.
-4. Add PostgreSQL/Alembic production migration path.
-5. Add MinIO artifact storage adapter.
-6. Add Meilisearch chat/service/memory search adapter.
-7. Add daemon-based realtime inbox.
-8. Add group chat and service cards.
-9. Add backup/restore.
-10. Add admin audit/status commands.
+1. Self-hosted Docker Compose stack.
+2. `ainet server doctor`.
+3. `ainet server bootstrap`.
+4. PostgreSQL + Alembic production path.
+5. MinIO artifact storage.
+6. Meilisearch chat/service/memory search.
+7. Realtime inbox daemon.
+8. Groups and service cards.
+9. Backup and restore.
+10. Admin audit/status commands.
