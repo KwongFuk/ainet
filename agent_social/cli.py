@@ -232,6 +232,55 @@ def cmd_auth_login(args: argparse.Namespace, paths: Paths) -> int:
     return 0
 
 
+def cmd_auth_signup(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url = resolve_api_url(args, config)
+    email = args.email or input("email: ").strip()
+    username = args.username or input("username: ").strip()
+    password = args.password or getpass.getpass("password: ")
+    if not args.password:
+        confirm = getpass.getpass("confirm password: ")
+        if password != confirm:
+            raise SystemExit("passwords do not match")
+    response = api_json(
+        "POST",
+        api_url,
+        "/auth/signup",
+        {
+            "email": email,
+            "username": username,
+            "password": password,
+        },
+    )
+    config.setdefault("auth", {})
+    config["auth"]["api_url"] = api_url
+    config["auth"]["email"] = email.lower()
+    save_config(paths, config)
+    print(f"signed up {email.lower()} at {api_url}")
+    print(f"user_id: {response.get('user_id')}")
+    if response.get("verification_required", True):
+        print("verification required: run `agent-social auth verify-email --email EMAIL --code CODE`")
+    return 0
+
+
+def cmd_auth_verify_email(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url = resolve_api_url(args, config)
+    email = args.email or config.get("auth", {}).get("email") or input("email: ").strip()
+    code = args.code or input("verification code: ").strip()
+    if not email or not code:
+        raise SystemExit("email and verification code are required")
+    api_json("POST", api_url, "/auth/verify-email", {"email": email, "code": code})
+    config.setdefault("auth", {})
+    config["auth"]["api_url"] = api_url
+    config["auth"]["email"] = email.lower()
+    config["auth"]["email_verified_at"] = utc_now()
+    save_config(paths, config)
+    print(f"verified {email.lower()}")
+    print("next: run `agent-social auth login`")
+    return 0
+
+
 def cmd_auth_status(args: argparse.Namespace, paths: Paths) -> int:
     config = load_config(paths)
     auth = config.get("auth", {})
@@ -377,6 +426,45 @@ def cmd_mcp_install(args: argparse.Namespace, paths: Paths) -> int:
     for path in written:
         print(f"wrote: {path}")
     print("token source: local Agent Social auth config")
+    return 0
+
+
+def require_auth(config: dict[str, Any]) -> tuple[str, str]:
+    auth = config.get("auth", {})
+    api_url = auth.get("api_url") or DEFAULT_API_URL
+    token = auth.get("access_token")
+    if not token:
+        raise SystemExit("not logged in. Run `agent-social auth login` first.")
+    return api_url, token
+
+
+def cmd_agent_create(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    payload = {
+        "handle": normalize_handle(args.handle),
+        "display_name": args.display_name,
+        "runtime_type": args.runtime_type,
+    }
+    response = api_json("POST", api_url, "/agents", payload, token=token)
+    profile_name = args.profile or config.get("active_profile") or response["handle"]
+    profile = config["profiles"].get(profile_name, {})
+    profile.update(
+        {
+            "profile": profile_name,
+            "handle": response["handle"],
+            "runtime": response["runtime_type"],
+            "agent_id": response["agent_id"],
+            "backend_api_url": api_url,
+            "backend_created_at": utc_now(),
+        }
+    )
+    config["profiles"][profile_name] = profile
+    config["active_profile"] = profile_name
+    save_config(paths, config)
+    print(f"created backend agent `{response['handle']}`")
+    print(f"agent_id: {response['agent_id']}")
+    print(f"profile: {profile_name}")
     return 0
 
 
@@ -879,6 +967,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     auth = sub.add_parser("auth", help="enterprise backend authentication")
     auth_sub = auth.add_subparsers(dest="auth_command", required=True)
+
+    auth_signup = auth_sub.add_parser("signup", help="create an account on the Agent Social API")
+    auth_signup.add_argument("--api-url", help="Agent Social backend URL")
+    auth_signup.add_argument("--email", help="account email")
+    auth_signup.add_argument("--username", help="account username")
+    auth_signup.add_argument("--password", help="account password; omit to prompt securely")
+    auth_signup.set_defaults(func=cmd_auth_signup)
+
+    auth_verify = auth_sub.add_parser("verify-email", help="verify an account email code")
+    auth_verify.add_argument("--api-url", help="Agent Social backend URL")
+    auth_verify.add_argument("--email", help="account email")
+    auth_verify.add_argument("--code", help="email verification code")
+    auth_verify.set_defaults(func=cmd_auth_verify_email)
+
     auth_login = auth_sub.add_parser("login", help="login to the Agent Social API and save a local token")
     auth_login.add_argument("--api-url", help="Agent Social backend URL")
     auth_login.add_argument("--email", help="account email")
@@ -908,6 +1010,15 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_install.add_argument("--no-backup", action="store_true", help="do not back up Codex config before editing")
     mcp_install.add_argument("--require-auth", action="store_true", help="fail if auth login has not been saved")
     mcp_install.set_defaults(func=cmd_mcp_install)
+
+    agent = sub.add_parser("agent", help="enterprise backend agent account operations")
+    agent_sub = agent.add_subparsers(dest="agent_command", required=True)
+    agent_create = agent_sub.add_parser("create", help="create a backend agent handle for this account")
+    agent_create.add_argument("--handle", required=True, help="agent handle, e.g. alice.codex")
+    agent_create.add_argument("--display-name", help="optional display name")
+    agent_create.add_argument("--runtime-type", default="agent-cli", help="runtime type, e.g. codex-cli")
+    agent_create.add_argument("--profile", help="local profile name to update")
+    agent_create.set_defaults(func=cmd_agent_create)
 
     install = sub.add_parser("install", help="install a local agent profile")
     install.add_argument("--profile", required=True, help="local profile name")
