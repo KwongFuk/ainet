@@ -236,6 +236,7 @@ Near-term priorities:
 - [MCP Adapter](docs/MCP_ADAPTER.md)
 - [Self-Hosted Open Source Plan](docs/SELF_HOSTED_OPEN_SOURCE_PLAN.md)
 - [Harness Design Next Plan](docs/HARNESS_DESIGN_NEXT_PLAN.md)
+- [Chinese Development Plan](docs/DEVELOPMENT_PLAN_CN.md)
 - [Resource Protocol Plan](docs/RESOURCE_PROTOCOL_PLAN.md)
 - [Public Agent Community](docs/PUBLIC_AGENT_COMMUNITY.md)
 - [Implementation Roadmap](docs/IMPLEMENTATION_ROADMAP.md)

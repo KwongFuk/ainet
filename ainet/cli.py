@@ -1290,15 +1290,47 @@ def print_need_bid(bid: dict[str, Any]) -> None:
     amount = "-"
     if bid.get("amount_cents") is not None:
         amount = f"{bid['amount_cents']} {bid.get('currency') or 'credits'}"
+    provider = bid.get("provider") or {}
+    service = bid.get("service") or {}
+    agent = bid.get("agent") or {}
     print(
         f"{bid['bid_id']} status={bid.get('status')} need={bid.get('need_id')} "
         f"provider={bid.get('provider_id') or '-'} service={bid.get('service_id') or '-'} "
         f"agent={bid.get('agent_id') or '-'} amount={amount}"
     )
+    if provider:
+        rep = (
+            f" rating={provider.get('average_score')}/{provider.get('rating_count')}"
+            if provider.get("rating_count")
+            else ""
+        )
+        print(
+            f"  provider_card: {provider.get('display_name') or provider.get('provider_id')} "
+            f"badge={provider.get('trust_badge')} verification={provider.get('verification_status')}{rep}"
+        )
+    if service:
+        print(
+            f"  service_card: {service.get('title') or service.get('service_id')} "
+            f"category={service.get('category')} status={service.get('status')}"
+        )
+    if agent:
+        print(
+            f"  agent_card: {agent.get('handle') or agent.get('agent_id')} "
+            f"runtime={agent.get('runtime_type')} verification={agent.get('verification_status')}"
+        )
     if bid.get("estimated_delivery"):
         print(f"  eta: {bid['estimated_delivery']}")
     if bid.get("proposal"):
         print(f"  proposal: {bid['proposal']}")
+
+
+def print_community_report(report: dict[str, Any]) -> None:
+    print(
+        f"{report['report_id']} status={report.get('status')} reporter={report.get('reporter_user_id')} "
+        f"target={report.get('target_type')}:{report.get('target_id')} reason={report.get('reason')}"
+    )
+    if report.get("details"):
+        print(f"  details: {report['details']}")
 
 
 def cmd_community_need_create(args: argparse.Namespace, paths: Paths) -> int:
@@ -1360,6 +1392,38 @@ def cmd_community_need_show(args: argparse.Namespace, paths: Paths) -> int:
     return 0
 
 
+def cmd_community_need_moderate(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    need = api_json(
+        "POST",
+        api_url,
+        f"/needs/{quote_path(args.need_id)}/moderation",
+        {"action": args.action, "note": args.note or ""},
+        token=token,
+    )
+    print_need(need)
+    return 0
+
+
+def cmd_community_need_report(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    report = api_json(
+        "POST",
+        api_url,
+        f"/needs/{quote_path(args.need_id)}/reports",
+        {
+            "reason": args.reason,
+            "details": args.details or "",
+            "metadata": read_json_payload(args.metadata_json, args.metadata_file, "metadata"),
+        },
+        token=token,
+    )
+    print_community_report(report)
+    return 0
+
+
 def cmd_community_need_discuss(args: argparse.Namespace, paths: Paths) -> int:
     config = load_config(paths)
     api_url, token = require_auth(config)
@@ -1391,6 +1455,24 @@ def cmd_community_need_comments(args: argparse.Namespace, paths: Paths) -> int:
         return 0
     for comment in comments:
         print_need_comment(comment)
+    return 0
+
+
+def cmd_community_need_report_comment(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    report = api_json(
+        "POST",
+        api_url,
+        f"/needs/{quote_path(args.need_id)}/discussion/{quote_path(args.comment_id)}/reports",
+        {
+            "reason": args.reason,
+            "details": args.details or "",
+            "metadata": read_json_payload(args.metadata_json, args.metadata_file, "metadata"),
+        },
+        token=token,
+    )
+    print_community_report(report)
     return 0
 
 
@@ -1428,6 +1510,24 @@ def cmd_community_need_bids(args: argparse.Namespace, paths: Paths) -> int:
         return 0
     for bid in bids:
         print_need_bid(bid)
+    return 0
+
+
+def cmd_community_need_report_bid(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    report = api_json(
+        "POST",
+        api_url,
+        f"/needs/{quote_path(args.need_id)}/bids/{quote_path(args.bid_id)}/reports",
+        {
+            "reason": args.reason,
+            "details": args.details or "",
+            "metadata": read_json_payload(args.metadata_json, args.metadata_file, "metadata"),
+        },
+        token=token,
+    )
+    print_community_report(report)
     return 0
 
 
@@ -1470,6 +1570,16 @@ def print_task(task: dict[str, Any]) -> None:
         print(f"  result: {json.dumps(task['result'], sort_keys=True)}")
 
 
+def print_provider(provider: dict[str, Any]) -> None:
+    print(
+        f"{provider['provider_id']} display_name={provider.get('display_name')} "
+        f"type={provider.get('provider_type')} verification={provider.get('verification_status')} "
+        f"badge={provider.get('trust_badge')}"
+    )
+    if provider.get("agent_id"):
+        print(f"  agent_id: {provider['agent_id']}")
+
+
 def print_task_receipt(receipt: dict[str, Any]) -> None:
     artifacts = ",".join(receipt.get("artifact_ids") or []) or "-"
     print(
@@ -1499,6 +1609,20 @@ def cmd_service_task_status(args: argparse.Namespace, paths: Paths) -> int:
     api_url, token = require_auth(config)
     task = api_json("GET", api_url, f"/tasks/{quote_path(args.task_id)}", token=token)
     print_task(task)
+    return 0
+
+
+def cmd_provider_verify_status(args: argparse.Namespace, paths: Paths) -> int:
+    config = load_config(paths)
+    api_url, token = require_auth(config)
+    provider = api_json(
+        "POST",
+        api_url,
+        f"/providers/{quote_path(args.provider_id)}/verification",
+        {"verification_status": args.verification_status, "note": args.note or ""},
+        token=token,
+    )
+    print_provider(provider)
     return 0
 
 
@@ -2391,7 +2515,7 @@ def build_parser() -> argparse.ArgumentParser:
     community_need_list.add_argument(
         "--status",
         default="open",
-        choices=["open", "assigned", "completed", "cancelled", "any"],
+        choices=["open", "assigned", "completed", "cancelled", "closed", "hidden", "any"],
         help="need status filter",
     )
     community_need_list.add_argument("--limit", type=int, default=50, help="maximum result count")
@@ -2400,6 +2524,24 @@ def build_parser() -> argparse.ArgumentParser:
     community_need_show = community_need_sub.add_parser("show", help="show one community need")
     community_need_show.add_argument("need_id", help="need id")
     community_need_show.set_defaults(func=cmd_community_need_show)
+
+    community_need_close = community_need_sub.add_parser("close", help="close your own community need")
+    community_need_close.add_argument("need_id", help="need id")
+    community_need_close.add_argument("--note", help="optional moderation note")
+    community_need_close.set_defaults(func=cmd_community_need_moderate, action="close")
+
+    community_need_hide = community_need_sub.add_parser("hide", help="hide your own community need from public discovery")
+    community_need_hide.add_argument("need_id", help="need id")
+    community_need_hide.add_argument("--note", help="optional moderation note")
+    community_need_hide.set_defaults(func=cmd_community_need_moderate, action="hide")
+
+    community_need_report = community_need_sub.add_parser("report", help="report a community need")
+    community_need_report.add_argument("need_id", help="need id")
+    community_need_report.add_argument("--reason", required=True, help="short report reason")
+    community_need_report.add_argument("--details", help="optional report details")
+    community_need_report.add_argument("--metadata-json", help="metadata JSON object")
+    community_need_report.add_argument("--metadata-file", help="read metadata JSON object from a file")
+    community_need_report.set_defaults(func=cmd_community_need_report)
 
     community_need_discuss = community_need_sub.add_parser("discuss", help="add a public discussion comment to a need")
     community_need_discuss.add_argument("need_id", help="need id")
@@ -2413,6 +2555,15 @@ def build_parser() -> argparse.ArgumentParser:
     community_need_comments.add_argument("need_id", help="need id")
     community_need_comments.add_argument("--limit", type=int, default=100, help="maximum result count")
     community_need_comments.set_defaults(func=cmd_community_need_comments)
+
+    community_need_report_comment = community_need_sub.add_parser("report-comment", help="report a discussion comment")
+    community_need_report_comment.add_argument("need_id", help="need id")
+    community_need_report_comment.add_argument("comment_id", help="comment id")
+    community_need_report_comment.add_argument("--reason", required=True, help="short report reason")
+    community_need_report_comment.add_argument("--details", help="optional report details")
+    community_need_report_comment.add_argument("--metadata-json", help="metadata JSON object")
+    community_need_report_comment.add_argument("--metadata-file", help="read metadata JSON object from a file")
+    community_need_report_comment.set_defaults(func=cmd_community_need_report_comment)
 
     community_need_bid = community_need_sub.add_parser("bid", help="submit a service-provider bid for a need")
     community_need_bid.add_argument("need_id", help="need id")
@@ -2433,6 +2584,15 @@ def build_parser() -> argparse.ArgumentParser:
     community_need_bids.add_argument("--limit", type=int, default=100, help="maximum result count")
     community_need_bids.set_defaults(func=cmd_community_need_bids)
 
+    community_need_report_bid = community_need_sub.add_parser("report-bid", help="report a bid on a community need")
+    community_need_report_bid.add_argument("need_id", help="need id")
+    community_need_report_bid.add_argument("bid_id", help="bid id")
+    community_need_report_bid.add_argument("--reason", required=True, help="short report reason")
+    community_need_report_bid.add_argument("--details", help="optional report details")
+    community_need_report_bid.add_argument("--metadata-json", help="metadata JSON object")
+    community_need_report_bid.add_argument("--metadata-file", help="read metadata JSON object from a file")
+    community_need_report_bid.set_defaults(func=cmd_community_need_report_bid)
+
     community_need_accept_bid = community_need_sub.add_parser("accept-bid", help="accept a bid and create a group/task")
     community_need_accept_bid.add_argument("need_id", help="need id")
     community_need_accept_bid.add_argument("bid_id", help="bid id")
@@ -2443,6 +2603,18 @@ def build_parser() -> argparse.ArgumentParser:
     community_need_accept_bid.add_argument("--task-input-file", help="read task input JSON object from a file")
     community_need_accept_bid.add_argument("--note", help="task context note")
     community_need_accept_bid.set_defaults(func=cmd_community_need_accept_bid)
+
+    provider = sub.add_parser("provider", help="provider profile operations")
+    provider_sub = provider.add_subparsers(dest="provider_command", required=True)
+    provider_verify = provider_sub.add_parser("verify-status", help="update verification status for an owned provider")
+    provider_verify.add_argument("provider_id", help="provider id")
+    provider_verify.add_argument(
+        "verification_status",
+        choices=["unverified", "pending", "verified", "suspended"],
+        help="new verification status",
+    )
+    provider_verify.add_argument("--note", help="optional audit note")
+    provider_verify.set_defaults(func=cmd_provider_verify_status)
 
     service = sub.add_parser("service", help="backend service task operations")
     service_sub = service.add_subparsers(dest="service_command", required=True)

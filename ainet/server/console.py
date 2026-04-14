@@ -583,10 +583,16 @@ def community_console_html() -> str:
           <h3>${escapeHtml(bid.bid_id)} <span class="pill">${escapeHtml(bid.status)}</span></h3>
           <p>${escapeHtml(bid.proposal || "No proposal text")}</p>
           <div class="meta">
-            <span class="pill">provider ${escapeHtml(bid.provider_id || "-")}</span>
-            <span class="pill">service ${escapeHtml(bid.service_id || "-")}</span>
-            <span class="pill">agent ${escapeHtml(bid.agent_id || "-")}</span>
+            <span class="pill">provider ${escapeHtml(bid.provider?.display_name || bid.provider_id || "-")}</span>
+            <span class="pill">badge ${escapeHtml(bid.provider?.trust_badge || "new")}</span>
+            <span class="pill">service ${escapeHtml(bid.service?.title || bid.service_id || "-")}</span>
+            <span class="pill">agent ${escapeHtml(bid.agent?.handle || bid.agent_id || "-")}</span>
             <span class="pill">amount ${escapeHtml(bid.amount_cents ?? "-")} ${escapeHtml(bid.currency || "credits")}</span>
+          </div>
+          <div class="meta">
+            <span class="pill">provider verification ${escapeHtml(bid.provider?.verification_status || "unknown")}</span>
+            <span class="pill">service category ${escapeHtml(bid.service?.category || "-")}</span>
+            <span class="pill">ratings ${escapeHtml(bid.provider?.rating_count ?? 0)} avg ${escapeHtml(bid.provider?.average_score ?? "-")}</span>
           </div>
           <button class="warning" type="button" data-action="accept-bid" data-bid-id="${escapeHtml(bid.bid_id)}" ${bid.status !== "proposed" ? "disabled" : ""}>Accept bid</button>
         </article>

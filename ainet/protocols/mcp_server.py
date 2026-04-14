@@ -486,6 +486,33 @@ def community_get_need(need_id: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+def community_moderate_need(need_id: str, action: str, note: str = "") -> dict[str, Any]:
+    """Close or hide a need you authored."""
+    need = client().request(
+        "POST",
+        f"/needs/{urllib.parse.quote(need_id)}/moderation",
+        {"action": action, "note": note},
+    )
+    return {"need": need}
+
+
+@mcp.tool()
+def community_report_need(
+    need_id: str,
+    reason: str,
+    details: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Report a community need."""
+    report = client().request(
+        "POST",
+        f"/needs/{urllib.parse.quote(need_id)}/reports",
+        {"reason": reason, "details": details, "metadata": metadata or {}},
+    )
+    return {"report": report}
+
+
+@mcp.tool()
 def community_discuss_need(
     need_id: str,
     body: str,
@@ -510,6 +537,23 @@ def community_list_discussion(need_id: str, limit: int = 100) -> dict[str, Any]:
         query={"limit": max(1, min(limit, 500))},
     )
     return {"comments": comments}
+
+
+@mcp.tool()
+def community_report_discussion(
+    need_id: str,
+    comment_id: str,
+    reason: str,
+    details: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Report a discussion comment on a community need."""
+    report = client().request(
+        "POST",
+        f"/needs/{urllib.parse.quote(need_id)}/discussion/{urllib.parse.quote(comment_id)}/reports",
+        {"reason": reason, "details": details, "metadata": metadata or {}},
+    )
+    return {"report": report}
 
 
 @mcp.tool()
@@ -551,6 +595,23 @@ def community_list_bids(need_id: str, limit: int = 100) -> dict[str, Any]:
         query={"limit": max(1, min(limit, 200))},
     )
     return {"bids": bids}
+
+
+@mcp.tool()
+def community_report_bid(
+    need_id: str,
+    bid_id: str,
+    reason: str,
+    details: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Report a bid on a community need."""
+    report = client().request(
+        "POST",
+        f"/needs/{urllib.parse.quote(need_id)}/bids/{urllib.parse.quote(bid_id)}/reports",
+        {"reason": reason, "details": details, "metadata": metadata or {}},
+    )
+    return {"report": report}
 
 
 @mcp.tool()
@@ -724,6 +785,21 @@ def get_reputation(provider_id: str) -> dict[str, Any]:
     """Fetch provider reputation based on ratings, completed tasks, and orders."""
     reputation = client().request("GET", f"/providers/{urllib.parse.quote(provider_id)}/reputation")
     return {"reputation": reputation}
+
+
+@mcp.tool()
+def update_provider_verification(
+    provider_id: str,
+    verification_status: str,
+    note: str = "",
+) -> dict[str, Any]:
+    """Provider owner: update verification status for an owned provider profile."""
+    provider = client().request(
+        "POST",
+        f"/providers/{urllib.parse.quote(provider_id)}/verification",
+        {"verification_status": verification_status, "note": note},
+    )
+    return {"provider": provider}
 
 
 @mcp.tool()

@@ -25,6 +25,7 @@ from .models import (
     Artifact,
     AuditLog,
     Capability,
+    CommunityReport,
     Contact,
     Conversation,
     ConversationMemory,
@@ -58,10 +59,13 @@ from .schemas import (
     AgentCreateRequest,
     AgentIdentityUpdateRequest,
     AgentResponse,
+    AgentSummaryResponse,
     AuditLogResponse,
     ArtifactCreateRequest,
     ArtifactResponse,
     CapabilityInput,
+    CommunityReportCreateRequest,
+    CommunityReportResponse,
     ContactCreateRequest,
     ContactResponse,
     ContactUpdateRequest,
@@ -94,19 +98,23 @@ from .schemas import (
     NeedBidResponse,
     NeedDiscussionCreateRequest,
     NeedDiscussionResponse,
+    NeedModerationRequest,
     NeedPostCreateRequest,
     NeedPostResponse,
     OrderResponse,
     PaymentResponse,
     ProviderCreateRequest,
+    ProviderCardResponse,
     ProviderReputationResponse,
     ProviderResponse,
+    ProviderVerificationUpdateRequest,
     QuoteAcceptRequest,
     QuoteCreateRequest,
     QuoteResponse,
     RatingCreateRequest,
     RatingResponse,
     ServiceProfileCreateRequest,
+    ServiceCardResponse,
     ServiceProfileResponse,
     SignupRequest,
     SignupResponse,
@@ -229,8 +237,11 @@ REQUESTER_WRITABLE_TASK_STATUSES = {"cancelled"}
 FINAL_TASK_STATUSES = {"verified", "rejected", "failed", "cancelled", "completed"}
 VERIFICATION_TASK_STATUSES = {"verified", "rejected"}
 KNOWN_NEED_VISIBILITIES = {"public", "private"}
-KNOWN_NEED_STATUSES = {"open", "assigned", "completed", "cancelled"}
+KNOWN_NEED_STATUSES = {"open", "assigned", "completed", "cancelled", "closed", "hidden"}
 KNOWN_BID_STATUSES = {"proposed", "accepted", "rejected", "withdrawn"}
+KNOWN_COMMUNITY_REPORT_TARGETS = {"need", "need_comment", "need_bid"}
+KNOWN_COMMUNITY_MODERATION_ACTIONS = {"close", "hide"}
+KNOWN_PROVIDER_VERIFICATION_STATUSES = {"unverified", "pending", "verified", "suspended"}
 
 
 def as_utc(value: datetime) -> datetime:
@@ -303,6 +314,27 @@ def normalize_need_visibility(visibility: str) -> str:
     return normalized
 
 
+def normalize_need_status(status_value: str) -> str:
+    normalized = status_value.strip().lower()
+    if normalized not in KNOWN_NEED_STATUSES:
+        raise HTTPException(status_code=400, detail=f"unsupported need status: {status_value}")
+    return normalized
+
+
+def normalize_community_report_reason(reason: str) -> str:
+    normalized = reason.strip().lower().replace(" ", "_")
+    if len(normalized) < 2:
+        raise HTTPException(status_code=400, detail="report reason must be at least 2 characters")
+    return normalized
+
+
+def normalize_provider_verification_status(status_value: str) -> str:
+    normalized = status_value.strip().lower()
+    if normalized not in KNOWN_PROVIDER_VERIFICATION_STATUSES:
+        raise HTTPException(status_code=400, detail=f"unsupported provider verification status: {status_value}")
+    return normalized
+
+
 def normalize_need_tags(tags: list[str] | None) -> list[str]:
     normalized: list[str] = []
     for tag in tags or []:
@@ -358,6 +390,74 @@ def agent_response(agent: AgentAccount) -> AgentResponse:
     )
 
 
+def agent_summary_response(agent: AgentAccount) -> AgentSummaryResponse:
+    return AgentSummaryResponse(
+        agent_id=agent.agent_id,
+        handle=agent.handle,
+        runtime_type=agent.runtime_type,
+        verification_status=agent.verification_status,
+    )
+
+
+def provider_reputation_stats(db: Session, provider_id: str) -> tuple[int, float | None, int, int]:
+    ratings = db.scalars(select(Rating).where(Rating.provider_id == provider_id)).all()
+    completed_tasks = db.scalars(
+        select(ServiceTask)
+        .where(ServiceTask.provider_id == provider_id)
+        .where(ServiceTask.status.in_(["verified", "completed"]))
+    ).all()
+    orders_count = len(db.scalars(select(ServiceOrder).where(ServiceOrder.provider_id == provider_id)).all())
+    average_score = sum(rating.score for rating in ratings) / len(ratings) if ratings else None
+    return len(ratings), average_score, len(completed_tasks), orders_count
+
+
+def provider_trust_badge(provider: Provider, *, rating_count: int, average_score: float | None, completed_tasks: int) -> str:
+    if provider.verification_status == "suspended":
+        return "suspended"
+    if provider.verification_status == "verified":
+        return "verified"
+    if provider.verification_status == "pending":
+        return "pending"
+    if completed_tasks >= 3 and average_score is not None and average_score >= 4.5:
+        return "trusted"
+    if rating_count > 0:
+        return "rated"
+    return "new"
+
+
+def provider_card_response(db: Session, provider: Provider) -> ProviderCardResponse:
+    rating_count, average_score, completed_tasks, orders_count = provider_reputation_stats(db, provider.provider_id)
+    return ProviderCardResponse(
+        provider_id=provider.provider_id,
+        display_name=provider.display_name,
+        provider_type=provider.provider_type,
+        verification_status=provider.verification_status,
+        trust_badge=provider_trust_badge(
+            provider,
+            rating_count=rating_count,
+            average_score=average_score,
+            completed_tasks=completed_tasks,
+        ),
+        agent_id=provider.agent_id,
+        rating_count=rating_count,
+        average_score=round(average_score, 2) if average_score is not None else None,
+        completed_tasks=completed_tasks,
+        orders_count=orders_count,
+    )
+
+
+def provider_response(db: Session, provider: Provider) -> ProviderResponse:
+    card = provider_card_response(db, provider)
+    return ProviderResponse(
+        provider_id=provider.provider_id,
+        display_name=provider.display_name,
+        provider_type=provider.provider_type,
+        verification_status=provider.verification_status,
+        agent_id=provider.agent_id,
+        trust_badge=card.trust_badge,
+    )
+
+
 def service_profile_response(db: Session, service: ServiceProfile) -> ServiceProfileResponse:
     capabilities = db.scalars(select(Capability).where(Capability.service_id == service.service_id)).all()
     return ServiceProfileResponse(
@@ -371,6 +471,20 @@ def service_profile_response(db: Session, service: ServiceProfile) -> ServicePro
         base_price_cents=service.base_price_cents,
         status=service.status,
         capabilities=[capability_response(capability) for capability in capabilities],
+    )
+
+
+def service_card_response(service: ServiceProfile) -> ServiceCardResponse:
+    return ServiceCardResponse(
+        service_id=service.service_id,
+        provider_id=service.provider_id,
+        title=service.title,
+        description=service.description,
+        category=service.category,
+        pricing_model=service.pricing_model,
+        currency=service.currency,
+        base_price_cents=service.base_price_cents,
+        status=service.status,
     )
 
 
@@ -572,7 +686,10 @@ def need_discussion_response(comment: NeedDiscussion) -> NeedDiscussionResponse:
     )
 
 
-def need_bid_response(bid: NeedBid) -> NeedBidResponse:
+def need_bid_response(db: Session, bid: NeedBid) -> NeedBidResponse:
+    provider = db.get(Provider, bid.provider_id) if bid.provider_id else None
+    service = db.get(ServiceProfile, bid.service_id) if bid.service_id else None
+    agent = db.get(AgentAccount, bid.agent_id) if bid.agent_id else None
     return NeedBidResponse(
         bid_id=bid.bid_id,
         need_id=bid.need_id,
@@ -586,8 +703,26 @@ def need_bid_response(bid: NeedBid) -> NeedBidResponse:
         currency=bid.currency,
         estimated_delivery=bid.estimated_delivery,
         terms=parse_json(bid.terms_json),
+        provider=provider_card_response(db, provider) if provider else None,
+        service=service_card_response(service) if service else None,
+        agent=agent_summary_response(agent) if agent else None,
         created_at=iso(bid.created_at) or "",
         updated_at=iso(bid.updated_at) or "",
+    )
+
+
+def community_report_response(report: CommunityReport) -> CommunityReportResponse:
+    return CommunityReportResponse(
+        report_id=report.report_id,
+        reporter_user_id=report.reporter_user_id,
+        target_type=report.target_type,
+        target_id=report.target_id,
+        reason=report.reason,
+        details=report.details,
+        metadata=parse_json(report.metadata_json),
+        status=report.status,
+        created_at=iso(report.created_at) or "",
+        updated_at=iso(report.updated_at) or "",
     )
 
 
@@ -790,6 +925,8 @@ def visible_need(db: Session, need_id: str, user: HumanAccount) -> NeedPost:
     need = db.get(NeedPost, need_id)
     if not need:
         raise HTTPException(status_code=404, detail="need not found")
+    if need.status == "hidden" and need.author_user_id != user.user_id:
+        raise HTTPException(status_code=404, detail="need not found")
     if need.visibility == "public" or need.author_user_id == user.user_id:
         return need
     bid = db.scalar(
@@ -808,6 +945,37 @@ def author_owned_need(db: Session, need_id: str, user: HumanAccount) -> NeedPost
     if not need or need.author_user_id != user.user_id:
         raise HTTPException(status_code=404, detail="need not found")
     return need
+
+
+def ensure_need_discussion_open_for_updates(need: NeedPost) -> None:
+    if need.status not in {"open", "assigned"}:
+        raise HTTPException(status_code=400, detail=f"need does not allow discussion updates: {need.status}")
+
+
+def validate_community_report_target(
+    db: Session,
+    user: HumanAccount,
+    *,
+    need_id: str,
+    target_type: str,
+    target_id: str,
+) -> tuple[NeedPost, str]:
+    if target_type not in KNOWN_COMMUNITY_REPORT_TARGETS:
+        raise HTTPException(status_code=400, detail=f"unsupported report target: {target_type}")
+    need = visible_need(db, need_id, user)
+    if target_type == "need":
+        if target_id != need.need_id:
+            raise HTTPException(status_code=404, detail="need not found")
+        return need, need.need_id
+    if target_type == "need_comment":
+        comment = db.get(NeedDiscussion, target_id)
+        if not comment or comment.need_id != need.need_id:
+            raise HTTPException(status_code=404, detail="discussion comment not found for this need")
+        return need, comment.comment_id
+    bid = db.get(NeedBid, target_id)
+    if not bid or bid.need_id != need.need_id:
+        raise HTTPException(status_code=404, detail="bid not found for this need")
+    return need, bid.bid_id
 
 
 def validate_need_bid_party(
@@ -2096,11 +2264,11 @@ def create_app() -> FastAPI:
         status: str | None = "open",
         limit: int = 50,
     ) -> list[NeedPostResponse]:
-        stmt = select(NeedPost).where((NeedPost.visibility == "public") | (NeedPost.author_user_id == user.user_id))
+        stmt = select(NeedPost).where(
+            ((NeedPost.visibility == "public") & (NeedPost.status != "hidden")) | (NeedPost.author_user_id == user.user_id)
+        )
         if status and status != "any":
-            normalized_status = status.strip().lower()
-            if normalized_status not in KNOWN_NEED_STATUSES:
-                raise HTTPException(status_code=400, detail=f"unsupported need status: {status}")
+            normalized_status = normalize_need_status(status)
             stmt = stmt.where(NeedPost.status == normalized_status)
         if category:
             stmt = stmt.where(NeedPost.category == category.strip().lower())
@@ -2125,6 +2293,69 @@ def create_app() -> FastAPI:
     ) -> NeedPostResponse:
         return need_response(visible_need(db, need_id, user))
 
+    @app.post("/needs/{need_id}/moderation", response_model=NeedPostResponse)
+    async def moderate_need(
+        need_id: str,
+        payload: NeedModerationRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("community:write")),
+    ) -> NeedPostResponse:
+        need = author_owned_need(db, need_id, user)
+        action = payload.action.strip().lower()
+        if action not in KNOWN_COMMUNITY_MODERATION_ACTIONS:
+            raise HTTPException(status_code=400, detail=f"unsupported moderation action: {payload.action}")
+        if action == "close":
+            if need.status != "open":
+                raise HTTPException(status_code=400, detail=f"need is not open: {need.status}")
+            need.status = "closed"
+        elif action == "hide":
+            if need.status == "hidden":
+                raise HTTPException(status_code=400, detail="need is already hidden")
+            need.status = "hidden"
+        need.updated_at = utc_now()
+        audit(db, user, f"need.{action}", "need", need.need_id, {"note": payload.note})
+        db.commit()
+        db.refresh(need)
+        event_type = {"close": "need.closed", "hide": "need.hidden"}[action]
+        await app.state.event_bus.publish(
+            db,
+            event_type,
+            {"need_id": need.need_id, "status": need.status, "note": payload.note},
+            user.user_id,
+        )
+        return need_response(need)
+
+    @app.post("/needs/{need_id}/reports", response_model=CommunityReportResponse, status_code=status.HTTP_201_CREATED)
+    async def report_need(
+        need_id: str,
+        payload: CommunityReportCreateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("community:write")),
+    ) -> CommunityReportResponse:
+        need, target_id = validate_community_report_target(
+            db, user, need_id=need_id, target_type="need", target_id=need_id
+        )
+        report = CommunityReport(
+            reporter_user_id=user.user_id,
+            target_type="need",
+            target_id=target_id,
+            reason=normalize_community_report_reason(payload.reason),
+            details=payload.details,
+            metadata_json=dump_json(payload.metadata),
+        )
+        db.add(report)
+        db.flush()
+        audit(db, user, "community.report.create", "need", target_id, {"report_id": report.report_id, "reason": report.reason})
+        db.commit()
+        db.refresh(report)
+        await app.state.event_bus.publish(
+            db,
+            "community.report.created",
+            {"report_id": report.report_id, "target_type": report.target_type, "target_id": report.target_id},
+            need.author_user_id,
+        )
+        return community_report_response(report)
+
     @app.post("/needs/{need_id}/discussion", response_model=NeedDiscussionResponse, status_code=status.HTTP_201_CREATED)
     async def create_need_discussion(
         need_id: str,
@@ -2133,6 +2364,7 @@ def create_app() -> FastAPI:
         user: HumanAccount = Depends(scoped_user("community:write")),
     ) -> NeedDiscussionResponse:
         need = visible_need(db, need_id, user)
+        ensure_need_discussion_open_for_updates(need)
         author_agent_id = validate_agent_owner(db, user, payload.author_agent_id)
         comment = NeedDiscussion(
             need_id=need.need_id,
@@ -2182,6 +2414,49 @@ def create_app() -> FastAPI:
             .limit(min(limit, 500))
         ).all()
         return [need_discussion_response(comment) for comment in comments]
+
+    @app.post(
+        "/needs/{need_id}/discussion/{comment_id}/reports",
+        response_model=CommunityReportResponse,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def report_need_discussion(
+        need_id: str,
+        comment_id: str,
+        payload: CommunityReportCreateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("community:write")),
+    ) -> CommunityReportResponse:
+        need, target_id = validate_community_report_target(
+            db, user, need_id=need_id, target_type="need_comment", target_id=comment_id
+        )
+        report = CommunityReport(
+            reporter_user_id=user.user_id,
+            target_type="need_comment",
+            target_id=target_id,
+            reason=normalize_community_report_reason(payload.reason),
+            details=payload.details,
+            metadata_json=dump_json(payload.metadata),
+        )
+        db.add(report)
+        db.flush()
+        audit(
+            db,
+            user,
+            "community.report.create",
+            "need_comment",
+            target_id,
+            {"report_id": report.report_id, "need_id": need.need_id, "reason": report.reason},
+        )
+        db.commit()
+        db.refresh(report)
+        await app.state.event_bus.publish(
+            db,
+            "community.report.created",
+            {"report_id": report.report_id, "target_type": report.target_type, "target_id": report.target_id},
+            need.author_user_id,
+        )
+        return community_report_response(report)
 
     @app.post("/needs/{need_id}/bids", response_model=NeedBidResponse, status_code=status.HTTP_201_CREATED)
     async def create_need_bid(
@@ -2233,7 +2508,7 @@ def create_app() -> FastAPI:
             },
             need.author_user_id,
         )
-        return need_bid_response(bid)
+        return need_bid_response(db, bid)
 
     @app.get("/needs/{need_id}/bids", response_model=list[NeedBidResponse])
     def list_need_bids(
@@ -2247,7 +2522,46 @@ def create_app() -> FastAPI:
         if need.visibility != "public" and need.author_user_id != user.user_id:
             stmt = stmt.where(NeedBid.bidder_user_id == user.user_id)
         bids = db.scalars(stmt.order_by(NeedBid.created_at.asc()).limit(min(limit, 200))).all()
-        return [need_bid_response(bid) for bid in bids]
+        return [need_bid_response(db, bid) for bid in bids]
+
+    @app.post("/needs/{need_id}/bids/{bid_id}/reports", response_model=CommunityReportResponse, status_code=status.HTTP_201_CREATED)
+    async def report_need_bid(
+        need_id: str,
+        bid_id: str,
+        payload: CommunityReportCreateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("community:write")),
+    ) -> CommunityReportResponse:
+        need, target_id = validate_community_report_target(
+            db, user, need_id=need_id, target_type="need_bid", target_id=bid_id
+        )
+        report = CommunityReport(
+            reporter_user_id=user.user_id,
+            target_type="need_bid",
+            target_id=target_id,
+            reason=normalize_community_report_reason(payload.reason),
+            details=payload.details,
+            metadata_json=dump_json(payload.metadata),
+        )
+        db.add(report)
+        db.flush()
+        audit(
+            db,
+            user,
+            "community.report.create",
+            "need_bid",
+            target_id,
+            {"report_id": report.report_id, "need_id": need.need_id, "reason": report.reason},
+        )
+        db.commit()
+        db.refresh(report)
+        await app.state.event_bus.publish(
+            db,
+            "community.report.created",
+            {"report_id": report.report_id, "target_type": report.target_type, "target_id": report.target_id},
+            need.author_user_id,
+        )
+        return community_report_response(report)
 
     @app.post("/needs/{need_id}/bids/{bid_id}/accept", response_model=NeedAcceptBidResponse)
     async def accept_need_bid(
@@ -2391,7 +2705,7 @@ def create_app() -> FastAPI:
         )
         return NeedAcceptBidResponse(
             need=need_response(need).model_dump(),
-            bid=need_bid_response(bid).model_dump(),
+            bid=need_bid_response(db, bid).model_dump(),
             group=group_response(group).model_dump(),
             task=task_response(task).model_dump() if task else None,
         )
@@ -2424,13 +2738,41 @@ def create_app() -> FastAPI:
             {"provider_id": provider.provider_id, "display_name": provider.display_name},
             user.user_id,
         )
-        return ProviderResponse(
-            provider_id=provider.provider_id,
-            display_name=provider.display_name,
-            provider_type=provider.provider_type,
-            verification_status=provider.verification_status,
-            agent_id=provider.agent_id,
+        return provider_response(db, provider)
+
+    @app.post("/providers/{provider_id}/verification", response_model=ProviderResponse)
+    async def update_provider_verification(
+        provider_id: str,
+        payload: ProviderVerificationUpdateRequest,
+        db: Session = Depends(get_db),
+        user: HumanAccount = Depends(scoped_user("services:write")),
+    ) -> ProviderResponse:
+        provider = db.get(Provider, provider_id)
+        if not provider or provider.owner_user_id != user.user_id:
+            raise HTTPException(status_code=404, detail="provider not found for this account")
+        provider.verification_status = normalize_provider_verification_status(payload.verification_status)
+        provider.updated_at = utc_now()
+        audit(
+            db,
+            user,
+            "provider.verification.update",
+            "provider",
+            provider.provider_id,
+            {"verification_status": provider.verification_status, "note": payload.note},
         )
+        db.commit()
+        db.refresh(provider)
+        await app.state.event_bus.publish(
+            db,
+            "provider.verification.updated",
+            {
+                "provider_id": provider.provider_id,
+                "verification_status": provider.verification_status,
+                "note": payload.note,
+            },
+            user.user_id,
+        )
+        return provider_response(db, provider)
 
     @app.post("/service-profiles", response_model=ServiceProfileResponse, status_code=status.HTTP_201_CREATED)
     async def create_service_profile(
@@ -2859,19 +3201,12 @@ def create_app() -> FastAPI:
         provider = db.get(Provider, provider_id)
         if not provider:
             raise HTTPException(status_code=404, detail="provider not found")
-        ratings = db.scalars(select(Rating).where(Rating.provider_id == provider_id)).all()
-        completed_tasks = db.scalars(
-            select(ServiceTask)
-            .where(ServiceTask.provider_id == provider_id)
-            .where(ServiceTask.status.in_(["verified", "completed"]))
-        ).all()
-        orders_count = len(db.scalars(select(ServiceOrder).where(ServiceOrder.provider_id == provider_id)).all())
-        average_score = sum(rating.score for rating in ratings) / len(ratings) if ratings else None
+        rating_count, average_score, completed_tasks, orders_count = provider_reputation_stats(db, provider_id)
         return ProviderReputationResponse(
             provider_id=provider_id,
-            rating_count=len(ratings),
+            rating_count=rating_count,
             average_score=round(average_score, 2) if average_score is not None else None,
-            completed_tasks=len(completed_tasks),
+            completed_tasks=completed_tasks,
             orders_count=orders_count,
         )
 

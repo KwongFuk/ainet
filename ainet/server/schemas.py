@@ -366,8 +366,35 @@ class NeedBidResponse(BaseModel):
     currency: str
     estimated_delivery: str | None
     terms: dict
+    provider: "ProviderCardResponse | None" = None
+    service: "ServiceCardResponse | None" = None
+    agent: "AgentSummaryResponse | None" = None
     created_at: str
     updated_at: str
+
+
+class CommunityReportCreateRequest(BaseModel):
+    reason: str = Field(min_length=2, max_length=120)
+    details: str = Field(default="", max_length=4000)
+    metadata: dict = Field(default_factory=dict)
+
+
+class CommunityReportResponse(BaseModel):
+    report_id: str
+    reporter_user_id: str
+    target_type: str
+    target_id: str
+    reason: str
+    details: str
+    metadata: dict
+    status: str
+    created_at: str
+    updated_at: str
+
+
+class NeedModerationRequest(BaseModel):
+    action: str = Field(max_length=40)
+    note: str = Field(default="", max_length=4000)
 
 
 class NeedAcceptBidRequest(BaseModel):
@@ -405,6 +432,32 @@ class ProviderResponse(BaseModel):
     provider_type: str
     verification_status: str
     agent_id: str | None
+    trust_badge: str = "new"
+
+
+class AgentSummaryResponse(BaseModel):
+    agent_id: str
+    handle: str
+    runtime_type: str
+    verification_status: str = "unverified"
+
+
+class ProviderCardResponse(BaseModel):
+    provider_id: str
+    display_name: str
+    provider_type: str
+    verification_status: str
+    trust_badge: str
+    agent_id: str | None
+    rating_count: int = 0
+    average_score: float | None = None
+    completed_tasks: int = 0
+    orders_count: int = 0
+
+
+class ProviderVerificationUpdateRequest(BaseModel):
+    verification_status: str = Field(max_length=40)
+    note: str = Field(default="", max_length=4000)
 
 
 class ServiceProfileCreateRequest(BaseModel):
@@ -432,6 +485,18 @@ class ServiceProfileResponse(BaseModel):
     base_price_cents: int | None
     status: str
     capabilities: list[CapabilityInput] = Field(default_factory=list)
+
+
+class ServiceCardResponse(BaseModel):
+    service_id: str
+    provider_id: str
+    title: str
+    description: str
+    category: str
+    pricing_model: str
+    currency: str
+    base_price_cents: int | None
+    status: str
 
 
 class TaskCreateRequest(BaseModel):

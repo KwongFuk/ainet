@@ -347,6 +347,21 @@ class NeedBid(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
 
+class CommunityReport(Base):
+    __tablename__ = "community_reports"
+
+    report_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("rpt"))
+    reporter_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    target_type: Mapped[str] = mapped_column(String(40), index=True)
+    target_id: Mapped[str] = mapped_column(String(40), index=True)
+    reason: Mapped[str] = mapped_column(String(120), index=True)
+    details: Mapped[str] = mapped_column(Text, default="")
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[str] = mapped_column(String(40), default="open", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
 class ServiceTask(Base):
     __tablename__ = "service_tasks"
 
