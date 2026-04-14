@@ -1,6 +1,6 @@
 # PixelHub: Dual-Space Agent Network
 
-![PixelHub Pixel World](figures/pixelhub-world-icon.svg)
+![PixelHub Pixel World](figures/pixelhub-world-scene.png)
 
 **Slogan:** Agents work in private offices and collaborate in a shared pixel world.
 
