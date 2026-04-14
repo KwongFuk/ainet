@@ -78,8 +78,36 @@ class AgentCreateRequest(BaseModel):
     handle: str = Field(min_length=3, max_length=120, pattern=r"^[a-z0-9._-]+$")
     display_name: str | None = Field(default=None, max_length=120)
     runtime_type: str = Field(default="agent", max_length=80)
+    persona_title: str | None = Field(default=None, max_length=120)
+    avatar_style: str = Field(default="pixel", max_length=40)
+    avatar_seed: str | None = Field(default=None, max_length=120)
+    avatar_palette: str | None = Field(default=None, max_length=80)
+    avatar_layers: dict = Field(default_factory=dict)
+    office_theme: str = Field(default="terminal_den", max_length=80)
+    world_status: str = Field(default="available", max_length=80)
     public_key: str | None = Field(default=None, max_length=12000)
     key_id: str | None = Field(default=None, max_length=120)
+
+
+class AgentAvatarResponse(BaseModel):
+    style: str
+    seed: str
+    palette: str
+    layers: dict
+
+
+class AgentSpaceProfileResponse(BaseModel):
+    office_theme: str
+    world_status: str
+
+
+class CosmeticEquipResponse(BaseModel):
+    equip_id: str
+    slot: str
+    item_id: str
+    slug: str
+    name: str
+    rarity: str
 
 
 class AgentResponse(BaseModel):
@@ -87,6 +115,10 @@ class AgentResponse(BaseModel):
     handle: str
     display_name: str | None = None
     runtime_type: str
+    persona_title: str | None = None
+    avatar: AgentAvatarResponse
+    space_profile: AgentSpaceProfileResponse
+    equipped_cosmetics: list[CosmeticEquipResponse] = Field(default_factory=list)
     public_key: str | None = None
     key_id: str | None = None
     key_rotated_at: str | None = None
@@ -94,6 +126,14 @@ class AgentResponse(BaseModel):
 
 
 class AgentIdentityUpdateRequest(BaseModel):
+    display_name: str | None = Field(default=None, max_length=120)
+    persona_title: str | None = Field(default=None, max_length=120)
+    avatar_style: str | None = Field(default=None, max_length=40)
+    avatar_seed: str | None = Field(default=None, max_length=120)
+    avatar_palette: str | None = Field(default=None, max_length=80)
+    avatar_layers: dict | None = None
+    office_theme: str | None = Field(default=None, max_length=80)
+    world_status: str | None = Field(default=None, max_length=80)
     public_key: str | None = Field(default=None, max_length=12000)
     key_id: str | None = Field(default=None, max_length=120)
 
@@ -439,6 +479,8 @@ class AgentSummaryResponse(BaseModel):
     agent_id: str
     handle: str
     runtime_type: str
+    persona_title: str | None = None
+    avatar: AgentAvatarResponse
     verification_status: str = "unverified"
 
 
@@ -583,6 +625,66 @@ class OrderResponse(BaseModel):
     status: str
     created_at: str
     payment: PaymentResponse | None = None
+
+
+class WalletResponse(BaseModel):
+    wallet_id: str
+    owner_user_id: str
+    currency: str
+    balance_credits: int
+    updated_at: str
+
+
+class WalletLedgerEntryResponse(BaseModel):
+    entry_id: str
+    wallet_id: str
+    owner_user_id: str
+    entry_type: str
+    amount_credits: int
+    balance_after: int
+    reason: str
+    reference_type: str | None = None
+    reference_id: str | None = None
+    created_at: str
+
+
+class CosmeticCatalogItemResponse(BaseModel):
+    item_id: str
+    slug: str
+    name: str
+    slot: str
+    rarity: str
+    price_credits: int
+    item_type: str
+    description: str
+    preview_layers: dict
+    status: str
+
+
+class CosmeticInventoryItemResponse(BaseModel):
+    inventory_id: str
+    item: CosmeticCatalogItemResponse
+    acquired_via: str
+    status: str
+    acquired_at: str
+    equipped: bool = False
+    equipped_agent_id: str | None = None
+    equipped_slot: str | None = None
+
+
+class CosmeticPurchaseRequest(BaseModel):
+    item_id: str | None = Field(default=None, max_length=40)
+    slug: str | None = Field(default=None, max_length=120)
+
+
+class CosmeticPurchaseResponse(BaseModel):
+    wallet: WalletResponse
+    ledger_entry: WalletLedgerEntryResponse
+    inventory_item: CosmeticInventoryItemResponse
+
+
+class CosmeticEquipRequest(BaseModel):
+    item_id: str = Field(max_length=40)
 
 
 class TaskResultRequest(BaseModel):

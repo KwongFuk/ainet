@@ -5,8 +5,11 @@ import getpass
 import importlib.util
 import json
 import os
+import re
+import secrets
 import shutil
 import sys
+import tarfile
 import tempfile
 import time
 import urllib.error
@@ -17,6 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 
 DEFAULT_HOME = Path(os.environ.get("AINET_HOME", "~/.ainet")).expanduser()
@@ -83,6 +87,22 @@ def write_json_atomic(path: Path, data: dict[str, Any]) -> None:
         os.replace(tmp_name, path)
         try:
             path.chmod(0o600)
+        except OSError:
+            pass
+    finally:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)
+
+
+def write_text_atomic(path: Path, text: str, mode: int = 0o600) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp_name, path)
+        try:
+            path.chmod(mode)
         except OSError:
             pass
     finally:
@@ -214,7 +234,13 @@ def print_backend_event(event: dict[str, Any]) -> None:
 
 def stream_backend_events(api_url: str, token: str, after_id: int, poll_seconds: float, once: bool) -> int:
     require_http_url(api_url, "API URL")
-    query = urllib.parse.urlencode({"after_id": max(0, after_id), "poll_seconds": max(0.5, min(poll_seconds, 10.0))})
+    query = urllib.parse.urlencode(
+        {
+            "after_id": max(0, after_id),
+            "poll_seconds": max(0.5, min(poll_seconds, 10.0)),
+            "once": "true" if once else "false",
+        }
+    )
     url = f"{api_url.rstrip('/')}/events/stream?{query}"
     request = urllib.request.Request(url, headers={"Accept": "text/event-stream", "Authorization": f"Bearer {token}"}, method="GET")
     data_lines: list[str] = []
@@ -261,6 +287,279 @@ def host_name() -> str:
         return os.uname().nodename
     except AttributeError:
         return "ainet-cli"
+
+
+def repo_root() -> Path | None:
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "pyproject.toml").exists() and (parent / "ainet").exists():
+            return parent
+    return None
+
+
+def normalize_domain(value: str) -> str:
+    domain = value.strip().lower()
+    if domain.startswith("http://") or domain.startswith("https://"):
+        raise SystemExit("domain should be a hostname like agents.example.com, not a URL")
+    if not domain or len(domain) > 253:
+        raise SystemExit("domain is required")
+    if domain.endswith("."):
+        domain = domain[:-1]
+    if not re.fullmatch(r"[a-z0-9.-]+", domain):
+        raise SystemExit("domain may only contain lowercase letters, digits, dots, and dashes")
+    labels = domain.split(".")
+    if any(not label or label.startswith("-") or label.endswith("-") for label in labels):
+        raise SystemExit("domain contains an invalid DNS label")
+    if len(labels) < 2:
+        raise SystemExit("domain should include at least one dot, for example agents.example.com")
+    return domain
+
+
+def normalize_email(value: str) -> str:
+    email = value.strip().lower()
+    if not email or "@" not in email or email.startswith("@") or email.endswith("@") or " " in email:
+        raise SystemExit("email must look like admin@example.com")
+    return email
+
+
+def bootstrap_output_dir(paths: Paths, domain: str) -> Path:
+    root = repo_root()
+    if root is not None:
+        return root / "deploy" / domain
+    safe = domain.replace(".", "-")
+    return paths.home / "deploy" / safe
+
+
+def classify_database_url(database_url: str) -> str:
+    if database_url.startswith("sqlite:///"):
+        return "sqlite"
+    if database_url.startswith("postgresql://") or database_url.startswith("postgresql+psycopg://"):
+        return "postgresql"
+    return "other"
+
+
+def redact_database_url(database_url: str) -> str:
+    parts = urlsplit(database_url)
+    if not parts.netloc or "@" not in parts.netloc:
+        return database_url
+    auth, host = parts.netloc.rsplit("@", 1)
+    if ":" not in auth:
+        return database_url
+    username = auth.split(":", 1)[0]
+    return urlunsplit((parts.scheme, f"{username}:***@{host}", parts.path, parts.query, parts.fragment))
+
+
+def bootstrap_env_text(domain: str, admin_email: str, database_backend: str) -> str:
+    jwt_secret = secrets.token_urlsafe(36)
+    if database_backend == "postgresql":
+        postgres_db = "ainet"
+        postgres_user = "ainet"
+        postgres_password = secrets.token_urlsafe(24)
+        database_url = f"postgresql://{postgres_user}:{postgres_password}@postgres:5432/{postgres_db}"
+        postgres_block = (
+            f"AINET_POSTGRES_DB={postgres_db}\n"
+            f"AINET_POSTGRES_USER={postgres_user}\n"
+            f"AINET_POSTGRES_PASSWORD={postgres_password}\n"
+        )
+    else:
+        database_url = "sqlite:////data/ainet.db"
+        postgres_block = ""
+    return (
+        "# Generated by `ainet server bootstrap`\n"
+        f"# Domain: {domain}\n"
+        f"# Admin email: {admin_email}\n"
+        "AINET_ENVIRONMENT=production\n"
+        "AINET_HOST=0.0.0.0\n"
+        "AINET_PORT=8787\n"
+        f"AINET_DATABASE_URL={database_url}\n"
+        f"AINET_JWT_SECRET={jwt_secret}\n"
+        "AINET_LOG_EMAIL_CODES=false\n"
+        "AINET_SMTP_HOST=\n"
+        "AINET_SMTP_PORT=587\n"
+        "AINET_SMTP_USERNAME=\n"
+        "AINET_SMTP_PASSWORD=\n"
+        f"AINET_SMTP_FROM=no-reply@{domain}\n"
+        "AINET_SMTP_STARTTLS=true\n"
+        f"{postgres_block}"
+    )
+
+
+def bootstrap_compose_text(domain: str, root: Path | None, database_backend: str) -> str:
+    migrate_cmd = "python -c \"from ainet.server.database import init_db; init_db()\" && ainet-server"
+    postgres_service = ""
+    postgres_depends = ""
+    postgres_volumes = "      - ./data:/data\n"
+    if database_backend == "postgresql":
+        postgres_service = (
+            "  postgres:\n"
+            "    image: postgres:16\n"
+            "    env_file:\n"
+            "      - .env\n"
+            "    environment:\n"
+            "      POSTGRES_DB: ${AINET_POSTGRES_DB}\n"
+            "      POSTGRES_USER: ${AINET_POSTGRES_USER}\n"
+            "      POSTGRES_PASSWORD: ${AINET_POSTGRES_PASSWORD}\n"
+            "    volumes:\n"
+            "      - ./postgres_data:/var/lib/postgresql/data\n"
+            "    restart: unless-stopped\n"
+            "    healthcheck:\n"
+            "      test: [\"CMD-SHELL\", \"pg_isready -U ${AINET_POSTGRES_USER} -d ${AINET_POSTGRES_DB}\"]\n"
+            "      interval: 5s\n"
+            "      timeout: 5s\n"
+            "      retries: 20\n"
+        )
+        postgres_depends = (
+            "    depends_on:\n"
+            "      postgres:\n"
+            "        condition: service_healthy\n"
+        )
+        postgres_volumes = ""
+    if root is None:
+        return (
+            "services:\n"
+            f"{postgres_service}"
+            "  api:\n"
+            "    image: python:3.14-slim\n"
+            "    working_dir: /workspace\n"
+            "    command: >-\n"
+            f"      sh -lc \"python -m pip install --no-cache-dir '/workspace[server,mcp]' && {migrate_cmd}\"\n"
+            "    env_file:\n"
+            "      - .env\n"
+            f"{postgres_depends}"
+            "    volumes:\n"
+            "      - ./:/workspace\n"
+            f"{postgres_volumes}"
+            "    restart: unless-stopped\n"
+            "    expose:\n"
+            "      - \"8787\"\n"
+            "  caddy:\n"
+            "    image: caddy:2\n"
+            "    depends_on:\n"
+            "      - api\n"
+            "    ports:\n"
+            "      - \"80:80\"\n"
+            "      - \"443:443\"\n"
+            "    volumes:\n"
+            "      - ./Caddyfile:/etc/caddy/Caddyfile:ro\n"
+            "      - ./caddy_data:/data\n"
+            "      - ./caddy_config:/config\n"
+            "    restart: unless-stopped\n"
+        )
+
+    dockerfile_path = f"deploy/{domain}/Dockerfile"
+    return (
+        "services:\n"
+        f"{postgres_service}"
+        "  api:\n"
+        "    build:\n"
+        f"      context: {root}\n"
+        f"      dockerfile: {dockerfile_path}\n"
+        "    command:\n"
+        "      - sh\n"
+        "      - -lc\n"
+        f"      - {migrate_cmd!r}\n"
+        "    env_file:\n"
+        "      - .env\n"
+        f"{postgres_depends}"
+        "    volumes:\n"
+        f"{postgres_volumes}"
+        "    restart: unless-stopped\n"
+        "    expose:\n"
+        "      - \"8787\"\n"
+        "  caddy:\n"
+        "    image: caddy:2\n"
+        "    depends_on:\n"
+        "      - api\n"
+        "    ports:\n"
+        "      - \"80:80\"\n"
+        "      - \"443:443\"\n"
+        "    volumes:\n"
+        "      - ./Caddyfile:/etc/caddy/Caddyfile:ro\n"
+        "      - ./caddy_data:/data\n"
+        "      - ./caddy_config:/config\n"
+        "    restart: unless-stopped\n"
+    )
+
+
+def bootstrap_dockerfile_text() -> str:
+    return (
+        "FROM python:3.14-slim\n"
+        "ENV PYTHONUNBUFFERED=1\n"
+        "WORKDIR /app\n"
+        "COPY pyproject.toml README.md /app/\n"
+        "COPY ainet /app/ainet\n"
+        "RUN python -m pip install --upgrade pip && python -m pip install '.[server,mcp]'\n"
+        "CMD [\"ainet-server\"]\n"
+    )
+
+
+def bootstrap_caddyfile_text(domain: str) -> str:
+    return (
+        "{\n"
+        f"  email admin@{domain}\n"
+        "}\n\n"
+        f"{domain} {{\n"
+        "  encode gzip\n"
+        "  reverse_proxy api:8787\n"
+        "}\n"
+    )
+
+
+def bootstrap_readme_text(domain: str, admin_email: str, output_dir: Path, database_backend: str) -> str:
+    storage_line = (
+        "- Creates a persistent `./postgres_data` volume for PostgreSQL plus Caddy state.\n"
+        if database_backend == "postgresql"
+        else "- Creates a persistent `./data` volume for the current SQLite-based homeserver.\n"
+    )
+    limitation = (
+        "This scaffold now includes a PostgreSQL deployment path, but it still relies on the app's "
+        "current schema initialization flow rather than a full Alembic-managed migration lifecycle.\n"
+        if database_backend == "postgresql"
+        else "This scaffold is the first self-hosted bootstrap slice. It uses the current SQLite-backed "
+        "homeserver and does not yet include PostgreSQL, Alembic migrations, object storage, search, "
+        "or backup automation.\n"
+    )
+    return (
+        "# Ainet Self-Hosted Scaffold\n\n"
+        f"This directory was generated for `{domain}` with admin email `{admin_email}`.\n\n"
+        "## What this bootstrap currently does\n\n"
+        "- Generates a production-oriented `.env` with a strong JWT secret.\n"
+        f"- Generates a Docker Compose stack with the Ainet API, Caddy reverse proxy, and `{database_backend}` data path.\n"
+        f"{storage_line}"
+        "- Leaves SMTP values editable so you can switch from local/dev mail to a real provider.\n\n"
+        "## Start the stack\n\n"
+        "```bash\n"
+        f"cd {output_dir}\n"
+        "docker compose up -d --build\n"
+        "```\n\n"
+        "## Before exposing this publicly\n\n"
+        "- Fill in SMTP settings in `.env`.\n"
+        "- Point DNS for the chosen domain to this host.\n"
+        "- Make sure ports `80` and `443` are reachable.\n"
+        "- Persist and back up the `data/`, `caddy_data/`, and `caddy_config/` directories.\n\n"
+        "## Current limitation\n\n"
+        f"{limitation}"
+    )
+
+
+def bootstrap_gitignore_text() -> str:
+    return "/.env\n/data/\n/postgres_data/\n/caddy_data/\n/caddy_config/\n"
+
+
+def backup_manifest(database_url: str, backup_path: Path, db_filename: str) -> dict[str, Any]:
+    return {
+        "created_at": utc_now(),
+        "database_backend": classify_database_url(database_url),
+        "database_url": redact_database_url(database_url),
+        "archive": backup_path.name,
+        "db_filename": db_filename,
+        "format": 1,
+    }
+
+
+def default_backup_output() -> Path:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return Path.cwd() / f"ainet-backup-{stamp}.tar.gz"
 
 
 def default_adapter_handle(suffix: str) -> str:
@@ -387,9 +686,22 @@ def print_agent_identity(agent: dict[str, Any]) -> None:
     key = agent.get("key_id") or "-"
     verified = agent.get("verification_status") or "unverified"
     display_name = f" name={agent['display_name']}" if agent.get("display_name") else ""
+    title = f" title={agent['persona_title']}" if agent.get("persona_title") else ""
+    avatar = agent.get("avatar") or {}
+    space = agent.get("space_profile") or {}
+    avatar_bits = (
+        f" avatar={avatar.get('style') or 'pixel'}:{avatar.get('palette') or '-'}"
+        if avatar
+        else ""
+    )
+    space_bits = (
+        f" office={space.get('office_theme') or '-'} world={space.get('world_status') or '-'}"
+        if space
+        else ""
+    )
     print(
         f"{agent['handle']} id={agent['agent_id']} runtime={agent['runtime_type']}"
-        f"{display_name} key_id={key} verification={verified}"
+        f"{display_name}{title} key_id={key} verification={verified}{avatar_bits}{space_bits}"
     )
 
 
@@ -683,6 +995,10 @@ def check_api_health(api_url: str) -> tuple[bool, str]:
     return bool(response.get("ok")), json.dumps(response, sort_keys=True)
 
 
+def current_database_url() -> str:
+    return os.environ.get("AINET_DATABASE_URL", "sqlite:///./ainet.db")
+
+
 def cmd_server_doctor(args: argparse.Namespace, paths: Paths) -> int:
     config = load_config(paths)
     api_url = resolve_api_url(args, config)
@@ -707,6 +1023,13 @@ def cmd_server_doctor(args: argparse.Namespace, paths: Paths) -> int:
             "installed" if spec_exists("mcp") else "missing; run `pip install -e \".[mcp]\"` if using MCP",
         )
     )
+    checks.append(
+        print_check(
+            "alembic dependency",
+            "ok" if spec_exists("alembic") else "warn",
+            "installed" if spec_exists("alembic") else "missing; install if you want migration-managed production upgrades",
+        )
+    )
 
     home_parent = paths.home if paths.home.exists() else paths.home.parent
     checks.append(
@@ -725,9 +1048,20 @@ def cmd_server_doctor(args: argparse.Namespace, paths: Paths) -> int:
         state = "warn" if jwt_secret == "dev-change-me" else "ok"
         checks.append(print_check("JWT secret", state, "development default" if state == "warn" else "configured"))
 
-    database_url = os.environ.get("AINET_DATABASE_URL", "sqlite:///./ainet.db")
+    database_url = current_database_url()
+    backend = classify_database_url(database_url)
     sqlite_path = sqlite_path_from_url(database_url)
-    if sqlite_path is None:
+    if backend == "postgresql":
+        driver_ok = spec_exists("psycopg") or spec_exists("psycopg2")
+        checks.append(
+            print_check(
+                "postgres driver",
+                "ok" if driver_ok else "warn",
+                "installed" if driver_ok else "missing; install `psycopg[binary]` for PostgreSQL deployments",
+            )
+        )
+        checks.append(print_check("database", "ok", redact_database_url(database_url)))
+    elif sqlite_path is None:
         checks.append(print_check("database", "ok", database_url.split("://", 1)[0]))
     else:
         db_parent = sqlite_path.parent if str(sqlite_path.parent) else Path(".")
@@ -745,6 +1079,11 @@ def cmd_server_doctor(args: argparse.Namespace, paths: Paths) -> int:
     else:
         checks.append(print_check("backend API", "warn", f"not checked; pass --check-api to probe {api_url}/health"))
 
+    if backend == "sqlite":
+        checks.append(print_check("backup/restore", "ok", "supported by `ainet server backup` and `ainet server restore`"))
+    else:
+        checks.append(print_check("backup/restore", "warn", "current CLI backup/restore is SQLite-first"))
+
     return 0 if all(checks) else 1
 
 
@@ -754,11 +1093,15 @@ def cmd_server_status(args: argparse.Namespace, paths: Paths) -> int:
     auth = config.get("auth", {})
     profiles = config.get("profiles", {})
     relay_exists = paths.relay.exists() if not paths.relay_url else False
+    database_url = current_database_url()
+    database_backend = classify_database_url(database_url)
 
     print("Ainet local status")
     print(f"home: {paths.home}")
     print(f"config: {paths.config} ({'exists' if paths.config.exists() else 'missing'})")
     print(f"api_url: {api_url}")
+    print(f"database_backend: {database_backend}")
+    print(f"database_url: {redact_database_url(database_url)}")
     print(f"auth: {'logged in' if auth.get('access_token') else 'not logged in'}")
     if auth.get("email"):
         print(f"email: {auth.get('email')}")
@@ -785,6 +1128,8 @@ def cmd_server_status(args: argparse.Namespace, paths: Paths) -> int:
             "home": str(paths.home),
             "config_exists": paths.config.exists(),
             "api_url": api_url,
+            "database_backend": database_backend,
+            "database_url": redact_database_url(database_url),
             "logged_in": bool(auth.get("access_token")),
             "active_profile": config.get("active_profile"),
             "profile_count": len(profiles),
@@ -795,14 +1140,114 @@ def cmd_server_status(args: argparse.Namespace, paths: Paths) -> int:
     return 0
 
 
-def cmd_server_bootstrap(_args: argparse.Namespace, _paths: Paths) -> int:
-    print("Ainet server bootstrap is planned, but not implemented in this CLI yet.")
-    print("Current supported commands:")
-    print("  ainet server doctor")
-    print("  ainet server status")
-    print("  ainet-server")
-    print("Next implementation target: generate Docker Compose + reverse proxy + database/search/object-storage config.")
-    return 2
+def cmd_server_bootstrap(args: argparse.Namespace, paths: Paths) -> int:
+    domain = normalize_domain(args.domain)
+    admin_email = normalize_email(args.email)
+    database_backend = args.database_backend
+    output_dir = Path(args.output_dir).expanduser() if args.output_dir else bootstrap_output_dir(paths, domain)
+
+    output_dir_exists = output_dir.exists()
+    if output_dir_exists and any(output_dir.iterdir()) and not args.force:
+        raise SystemExit(f"bootstrap output already exists and is not empty: {output_dir} (use --force to overwrite)")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "data").mkdir(exist_ok=True)
+    if database_backend == "postgresql":
+        (output_dir / "postgres_data").mkdir(exist_ok=True)
+    (output_dir / "caddy_data").mkdir(exist_ok=True)
+    (output_dir / "caddy_config").mkdir(exist_ok=True)
+
+    root = repo_root()
+    write_text_atomic(output_dir / ".env", bootstrap_env_text(domain, admin_email, database_backend))
+    write_text_atomic(output_dir / "compose.yaml", bootstrap_compose_text(domain, root, database_backend))
+    write_text_atomic(output_dir / "Caddyfile", bootstrap_caddyfile_text(domain))
+    write_text_atomic(output_dir / "README.md", bootstrap_readme_text(domain, admin_email, output_dir, database_backend))
+    write_text_atomic(output_dir / ".gitignore", bootstrap_gitignore_text())
+    if root is not None:
+        write_text_atomic(output_dir / "Dockerfile", bootstrap_dockerfile_text())
+
+    print("Ainet server bootstrap scaffold generated.")
+    print(f"domain: {domain}")
+    print(f"admin_email: {admin_email}")
+    print(f"database_backend: {database_backend}")
+    print(f"output_dir: {output_dir}")
+    print("generated files:")
+    print(f"  {output_dir / '.env'}")
+    print(f"  {output_dir / 'compose.yaml'}")
+    print(f"  {output_dir / 'Caddyfile'}")
+    print(f"  {output_dir / 'README.md'}")
+    if root is not None:
+        print(f"  {output_dir / 'Dockerfile'}")
+        print(f"build_context: {root}")
+    print("next step:")
+    print(f"  cd {output_dir}")
+    print("  docker compose up -d --build")
+    return 0
+
+
+def cmd_server_backup(args: argparse.Namespace, _paths: Paths) -> int:
+    database_url = current_database_url()
+    sqlite_path = sqlite_path_from_url(database_url)
+    if sqlite_path is None:
+        raise SystemExit("`ainet server backup` currently supports SQLite database URLs only")
+    if not sqlite_path.exists():
+        raise SystemExit(f"sqlite database not found: {sqlite_path}")
+
+    output = Path(args.output).expanduser() if args.output else default_backup_output()
+    if output.exists() and not args.force:
+        raise SystemExit(f"backup archive already exists: {output} (use --force to overwrite)")
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    manifest = backup_manifest(database_url, output, sqlite_path.name)
+    with tarfile.open(output, "w:gz") as archive:
+        with tempfile.TemporaryDirectory(prefix="ainet-backup-") as tmp:
+            tmp_dir = Path(tmp)
+            manifest_path = tmp_dir / "manifest.json"
+            manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            archive.add(manifest_path, arcname="manifest.json")
+        archive.add(sqlite_path, arcname=f"db/{sqlite_path.name}")
+
+    print("Ainet server backup created.")
+    print(f"database_url: {redact_database_url(database_url)}")
+    print(f"archive: {output}")
+    return 0
+
+
+def cmd_server_restore(args: argparse.Namespace, _paths: Paths) -> int:
+    database_url = current_database_url()
+    sqlite_path = sqlite_path_from_url(database_url)
+    if sqlite_path is None:
+        raise SystemExit("`ainet server restore` currently supports SQLite database URLs only")
+
+    archive_path = Path(args.input).expanduser()
+    if not archive_path.exists():
+        raise SystemExit(f"backup archive not found: {archive_path}")
+    if sqlite_path.exists() and not args.force:
+        raise SystemExit(f"target sqlite database already exists: {sqlite_path} (use --force to overwrite)")
+
+    sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(archive_path, "r:gz") as archive:
+        db_members = [member for member in archive.getmembers() if member.isfile() and member.name.startswith("db/")]
+        if not db_members:
+            raise SystemExit("backup archive does not contain a SQLite database payload")
+        db_member = db_members[0]
+        extracted = archive.extractfile(db_member)
+        if extracted is None:
+            raise SystemExit("failed to read database payload from backup archive")
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            shutil.copyfileobj(extracted, tmp)
+            tmp_path = Path(tmp.name)
+    try:
+        shutil.copyfile(tmp_path, sqlite_path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+    print("Ainet server restore complete.")
+    print(f"archive: {archive_path}")
+    print(f"database_url: {redact_database_url(database_url)}")
+    print(f"restored_to: {sqlite_path}")
+    return 0
 
 
 def cmd_agent_create(args: argparse.Namespace, paths: Paths) -> int:
@@ -813,6 +1258,13 @@ def cmd_agent_create(args: argparse.Namespace, paths: Paths) -> int:
         "handle": normalize_handle(args.handle),
         "display_name": args.display_name,
         "runtime_type": args.runtime_type,
+        "persona_title": args.persona_title,
+        "avatar_style": args.avatar_style,
+        "avatar_seed": args.avatar_seed,
+        "avatar_palette": args.avatar_palette,
+        "avatar_layers": read_json_payload(args.avatar_layers_json, args.avatar_layers_file, "avatar layers"),
+        "office_theme": args.office_theme,
+        "world_status": args.world_status,
         "public_key": public_key,
         "key_id": args.key_id,
     }
@@ -933,9 +1385,24 @@ def cmd_agent_identity_update(args: argparse.Namespace, paths: Paths) -> int:
     config = load_config(paths)
     api_url, token = require_auth(config)
     public_key = read_text_arg(args.public_key, args.public_key_file, "public key")
-    payload = {key: value for key, value in {"public_key": public_key, "key_id": args.key_id}.items() if value is not None}
+    payload = {
+        key: value
+        for key, value in {
+            "display_name": args.display_name,
+            "persona_title": args.persona_title,
+            "avatar_style": args.avatar_style,
+            "avatar_seed": args.avatar_seed,
+            "avatar_palette": args.avatar_palette,
+            "avatar_layers": read_json_payload(args.avatar_layers_json, args.avatar_layers_file, "avatar layers"),
+            "office_theme": args.office_theme,
+            "world_status": args.world_status,
+            "public_key": public_key,
+            "key_id": args.key_id,
+        }.items()
+        if value is not None
+    }
     if not payload:
-        raise SystemExit("nothing to update; pass --public-key, --public-key-file, or --key-id")
+        raise SystemExit("nothing to update; pass identity, avatar, or key fields")
     agent = api_json("PATCH", api_url, f"/agents/{args.agent_id}/identity", payload, token=token)
     print_agent_identity(agent)
     return 0
@@ -2344,10 +2811,26 @@ def build_parser() -> argparse.ArgumentParser:
     server_status.add_argument("--api-url", help="Ainet backend URL")
     server_status.add_argument("--json", action="store_true", help="also print machine-readable JSON")
     server_status.set_defaults(func=cmd_server_status)
-    server_bootstrap = server_sub.add_parser("bootstrap", help="planned self-hosted bootstrap entry point")
-    server_bootstrap.add_argument("--domain", help="public homeserver domain")
-    server_bootstrap.add_argument("--email", help="admin email")
+    server_bootstrap = server_sub.add_parser("bootstrap", help="generate a self-hosted homeserver scaffold")
+    server_bootstrap.add_argument("--domain", required=True, help="public homeserver domain, for example agents.example.com")
+    server_bootstrap.add_argument("--email", required=True, help="administrator email used for TLS notices and SMTP defaults")
+    server_bootstrap.add_argument(
+        "--database-backend",
+        choices=["sqlite", "postgresql"],
+        default="sqlite",
+        help="database backend to scaffold for",
+    )
+    server_bootstrap.add_argument("--output-dir", help="directory to write the generated Docker Compose scaffold into")
+    server_bootstrap.add_argument("--force", action="store_true", help="overwrite an existing non-empty output directory")
     server_bootstrap.set_defaults(func=cmd_server_bootstrap)
+    server_backup = server_sub.add_parser("backup", help="create a backup archive for the current server database")
+    server_backup.add_argument("--output", help="output .tar.gz path; defaults to ./ainet-backup-<timestamp>.tar.gz")
+    server_backup.add_argument("--force", action="store_true", help="overwrite an existing output archive")
+    server_backup.set_defaults(func=cmd_server_backup)
+    server_restore = server_sub.add_parser("restore", help="restore the current server database from a backup archive")
+    server_restore.add_argument("--input", required=True, help="backup .tar.gz archive to restore from")
+    server_restore.add_argument("--force", action="store_true", help="overwrite an existing target sqlite database")
+    server_restore.set_defaults(func=cmd_server_restore)
 
     events = sub.add_parser("events", help="enterprise backend event operations")
     events_sub = events.add_subparsers(dest="events_command", required=True)
@@ -2385,12 +2868,29 @@ def build_parser() -> argparse.ArgumentParser:
     agent_create.add_argument("--display-name", help="optional display name")
     agent_create.add_argument("--runtime-type", default="agent-cli", help="runtime type, e.g. coding-agent")
     agent_create.add_argument("--profile", help="local profile name to update")
+    agent_create.add_argument("--persona-title", help="public-facing pixel persona title")
+    agent_create.add_argument("--avatar-style", default="pixel", help="avatar style, default: pixel")
+    agent_create.add_argument("--avatar-seed", help="stable avatar seed")
+    agent_create.add_argument("--avatar-palette", help="avatar palette name")
+    agent_create.add_argument("--avatar-layers-json", help="avatar layers JSON object")
+    agent_create.add_argument("--avatar-layers-file", help="read avatar layers JSON object from a file")
+    agent_create.add_argument("--office-theme", default="terminal_den", help="private office theme")
+    agent_create.add_argument("--world-status", default="available", help="public world status")
     agent_create.add_argument("--public-key", help="public key metadata for future signed agent cards")
     agent_create.add_argument("--public-key-file", help="read public key metadata from a file")
     agent_create.add_argument("--key-id", help="stable key identifier for future signing")
     agent_create.set_defaults(func=cmd_agent_create)
     agent_identity = agent_sub.add_parser("identity", help="update backend agent identity metadata")
     agent_identity.add_argument("agent_id", help="agent id to update")
+    agent_identity.add_argument("--display-name", help="public display name")
+    agent_identity.add_argument("--persona-title", help="public-facing pixel persona title")
+    agent_identity.add_argument("--avatar-style", help="avatar style")
+    agent_identity.add_argument("--avatar-seed", help="stable avatar seed")
+    agent_identity.add_argument("--avatar-palette", help="avatar palette name")
+    agent_identity.add_argument("--avatar-layers-json", help="avatar layers JSON object")
+    agent_identity.add_argument("--avatar-layers-file", help="read avatar layers JSON object from a file")
+    agent_identity.add_argument("--office-theme", help="private office theme")
+    agent_identity.add_argument("--world-status", help="public world status")
     agent_identity.add_argument("--public-key", help="public key metadata for future signed agent cards")
     agent_identity.add_argument("--public-key-file", help="read public key metadata from a file")
     agent_identity.add_argument("--key-id", help="stable key identifier for future signing")

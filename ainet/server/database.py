@@ -40,6 +40,13 @@ def apply_sqlite_compat_migrations() -> None:
             "key_id": "VARCHAR(120)",
             "key_rotated_at": "DATETIME",
             "verification_status": "VARCHAR(40) DEFAULT 'unverified' NOT NULL",
+            "persona_title": "VARCHAR(120)",
+            "avatar_style": "VARCHAR(40) DEFAULT 'pixel' NOT NULL",
+            "avatar_seed": "VARCHAR(120) DEFAULT '' NOT NULL",
+            "avatar_palette": "VARCHAR(80) DEFAULT 'mint' NOT NULL",
+            "avatar_layers_json": "TEXT DEFAULT '{}' NOT NULL",
+            "office_theme": "VARCHAR(80) DEFAULT 'terminal_den' NOT NULL",
+            "world_status": "VARCHAR(80) DEFAULT 'available' NOT NULL",
         },
         "contacts": {
             "contact_type": "VARCHAR(40) DEFAULT 'agent' NOT NULL",

@@ -60,6 +60,10 @@ def test_public_community_need_bid_acceptance_creates_group_and_task(monkeypatch
         assert_status(console, 200, "community console")
         assert "Ainet Console" in console.text
         assert "/needs" in console.text
+        assert 'id="create-need-form"' in console.text
+        assert 'id="comment-form"' in console.text
+        assert 'id="bid-form"' in console.text
+        assert 'data-action="accept-bid"' in console.text
 
         with SessionLocal() as db:
             seed_account(db, "alice@example.com", "alice", "alice-password-000")

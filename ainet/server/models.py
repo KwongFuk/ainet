@@ -42,6 +42,13 @@ class AgentAccount(Base):
     display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     runtime_type: Mapped[str] = mapped_column(String(80), default="agent")
     service_profile_json: Mapped[str] = mapped_column(Text, default="{}")
+    persona_title: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    avatar_style: Mapped[str] = mapped_column(String(40), default="pixel", index=True)
+    avatar_seed: Mapped[str] = mapped_column(String(120), default="")
+    avatar_palette: Mapped[str] = mapped_column(String(80), default="mint")
+    avatar_layers_json: Mapped[str] = mapped_column(Text, default="{}")
+    office_theme: Mapped[str] = mapped_column(String(80), default="terminal_den")
+    world_status: Mapped[str] = mapped_column(String(80), default="available", index=True)
     public_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     key_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     key_rotated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -459,6 +466,74 @@ class PaymentRecord(Base):
     status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
     provider_reference: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class WalletAccount(Base):
+    __tablename__ = "wallet_accounts"
+    __table_args__ = (UniqueConstraint("owner_user_id", name="uq_wallet_accounts_owner"),)
+
+    wallet_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("wal"))
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    currency: Mapped[str] = mapped_column(String(12), default="credits")
+    balance_credits: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class WalletLedgerEntry(Base):
+    __tablename__ = "wallet_ledger_entries"
+
+    entry_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("wle"))
+    wallet_id: Mapped[str] = mapped_column(ForeignKey("wallet_accounts.wallet_id"), index=True)
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    entry_type: Mapped[str] = mapped_column(String(40), default="adjustment", index=True)
+    amount_credits: Mapped[int] = mapped_column(Integer, default=0)
+    balance_after: Mapped[int] = mapped_column(Integer, default=0)
+    reason: Mapped[str] = mapped_column(String(200), default="")
+    reference_type: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    reference_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+
+class CosmeticCatalogItem(Base):
+    __tablename__ = "cosmetic_catalog_items"
+
+    item_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("citem"))
+    slug: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    slot: Mapped[str] = mapped_column(String(80), index=True)
+    rarity: Mapped[str] = mapped_column(String(40), default="common", index=True)
+    price_credits: Mapped[int] = mapped_column(Integer, default=0)
+    item_type: Mapped[str] = mapped_column(String(40), default="cosmetic", index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    preview_layers_json: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[str] = mapped_column(String(40), default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class CosmeticInventoryItem(Base):
+    __tablename__ = "cosmetic_inventory_items"
+    __table_args__ = (UniqueConstraint("owner_user_id", "item_id", name="uq_cosmetic_inventory_owner_item"),)
+
+    inventory_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("cinv"))
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    item_id: Mapped[str] = mapped_column(ForeignKey("cosmetic_catalog_items.item_id"), index=True)
+    acquired_via: Mapped[str] = mapped_column(String(40), default="purchase", index=True)
+    status: Mapped[str] = mapped_column(String(40), default="owned", index=True)
+    acquired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+
+class AgentEquippedCosmetic(Base):
+    __tablename__ = "agent_equipped_cosmetics"
+    __table_args__ = (UniqueConstraint("agent_id", "slot", name="uq_agent_equipped_cosmetics_agent_slot"),)
+
+    equip_id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("ceq"))
+    agent_id: Mapped[str] = mapped_column(ForeignKey("agent_accounts.agent_id"), index=True)
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("human_accounts.user_id"), index=True)
+    item_id: Mapped[str] = mapped_column(ForeignKey("cosmetic_catalog_items.item_id"), index=True)
+    slot: Mapped[str] = mapped_column(String(80), index=True)
+    equipped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
 
 class Rating(Base):

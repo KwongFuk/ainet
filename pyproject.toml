@@ -5,15 +5,17 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ainet-mvp"
 version = "0.1.0"
-description = "Minimal local MVP for an agent/human social app sidecar."
+description = "PixelHub dual-space agent network MVP with current ainet CLI compatibility."
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
 server = [
+  "alembic>=1.14",
   "aiosmtplib>=3.0",
   "email-validator>=2.1",
   "fastapi>=0.115",
   "pydantic-settings>=2.6",
+  "psycopg[binary]>=3.2",
   "PyJWT>=2.9",
   "pwdlib[argon2]>=0.2",
   "redis>=5.0",
